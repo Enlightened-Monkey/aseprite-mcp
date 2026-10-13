@@ -7,13 +7,17 @@ async def animation_workflow_guide(use_case: str = "character") -> str:
     header = "Animation Workflow Guide"
     if use_case == "character":
         bullets = [
-            "Block your key poses on frame 1, then copy the base with copy_frame/copy_cel.",
+            "Read pixel_art_guide('animation') for timing and principles.",
+            "Block distinct key poses first, then copy the base with copy_frame/copy_cel.",
+            "Move parts with animate_layer_path (arcs via breakdown, ease_in_out, back_out overshoot).",
+            "Trail hair/capes with apply_overlap; loop few drawings with build_loop; time with set_frame_timing.",
             "Use propagate_cels for static layers (body, clothing) across the range.",
             "Animate motion with tween_cel_positions or offset_cel_positions, avoid redrawing.",
             "Add secondary motion on separate layers (hair, accessories) for readability.",
             "Keep layers deterministic: set_layer_visibility/opacity + *_at drawing tools.",
             "Finalize with set_tag for loop ranges and export_sprite for preview.",
             "Run audit_animation or animation_sanitize to validate layer coverage and overlaps.",
+            "Review motion and timing with analyze_animation.",
         ]
     elif use_case == "environment":
         bullets = [

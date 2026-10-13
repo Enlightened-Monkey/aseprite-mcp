@@ -70,4 +70,4 @@ Example of a 6-frame breathing idle: the chest and shoulders shift 0.5 → 1 →
 - Shifting everything can create banding. Whole-pixel moves are often fine. Motion and readability come first.
 
 ## Tools in this MCP
-`duplicate_frame_range`, `copy_frame`, `draw_pixels`, `get_pixels_rect`, `compare_frames` (diff instead of onion skin), `set_frame_duration`, `tween_cel_positions_eased`, `oscillate_cel_positions`, `offset_cel_positions`, `audit_animation`, `shade_color`, `get_palette`, `readability_preview` (light/mid/dark backgrounds for sel-out), `lint_pixel_art` (AA outside the outline).
+`subpixel_move` (fractional moves using only existing colours; protect_colors keeps faces crisp), `animate_layer_path` (subpixel=true), `analyze_animation`, `duplicate_frame_range`, `copy_frame`, `draw_pixels`, `get_pixels_rect`, `compare_frames` (diff instead of onion skin), `set_frame_duration`, `tween_cel_positions_eased`, `oscillate_cel_positions`, `offset_cel_positions`, `audit_animation`, `shade_color`, `get_palette`, `readability_preview` (light/mid/dark backgrounds for sel-out), `lint_pixel_art` (AA outside the outline).

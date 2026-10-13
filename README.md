@@ -294,6 +294,15 @@ Pixel-art technique knowledge and checks. Algorithms run in Python on the frame'
 | `dither_fill` | Ramp gradient with ordered dither (clean 4x4 density ladder), canvas-aligned, optional shape or colour mask |
 | `gradient_map` | Recolour a greyscale value drawing with a ramp (optional checker steps), across frames |
 | `reduce_colors` | Reduce to N colours with one shared mapping across layers and frames (no animation flicker) |
+| `analyze_animation` | Timing/motion review of an .aseprite or reference GIF: drawing sequence (ping-pong, A-B-A-C), holds, per-frame shift + redraw residual, two-frame loops, duplicates, mechanical spacing, odd frames, one-frame colours; with a frame strip |
+| `set_frame_timing` | Durations from presets (idle, walk, run, jump, attack, smear, impact, UI...), explicit ms, ones/twos at 60/30/24 fps, or easing by timing |
+| `animate_layer_path` | Move a layer's drawing over frames along a straight or arced path (breakdown point) with easing, overshoot (`back_out`) or sub-pixel rendering |
+| `squash_stretch` | Area-preserving squash/stretch anchored at the contact point |
+| `subpixel_move` | Fractional move that slides edges by tone using only existing colours; protected colours stay crisp |
+| `apply_overlap` | Followers (hair, cape, tail) repeat the leader's movement 1-3 frames late |
+| `build_loop` | Re-arrange key frames into ping-pong, A-B-A-C or a custom loop (all layers, durations kept) |
+| `generate_smear` | Elongated or after-image smear in-between, in-palette |
+| `draw_slash_arc` | Multi-frame weapon trail: full crescent, fading body, tail |
 | `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, style, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
 
 ### Scripting

@@ -60,5 +60,15 @@ Defaults when unsure: 100 ms for normal frames, 40-50 ms for smears, 150-400 ms 
 - **Parallax**: nearer layers scroll faster. For a seamless loop, each layer's speed × frame count must be a multiple of that layer's width.
 - **Reference**: step through it frame by frame, mark the extremes (the poses just before a change of direction), use them as keys, draw your own in-betweens, and exaggerate.
 
+## Workflow with the craft tools
+1. Draw distinct key poses on their own frames. Check the silhouettes with `readability_preview`.
+2. Move parts between keys with `animate_layer_path`: use a breakdown offset for arcs, `ease_in_out` for most moves, and `back_out` with 1-2 px of overshoot for snappy ones. Use `subpixel=true` for slow, sub-pixel moves.
+3. Deform on impacts with `squash_stretch`, which keeps the area. Anchor it at the contact point.
+4. Make hair, capes and tails trail the body with `apply_overlap` (1-2 frames of delay).
+5. Turn a few drawings into a loop with `build_loop` (`pingpong`, `abac`, or your own sequence).
+6. On fast strikes, add `generate_smear` (40-50 ms) and `draw_slash_arc` for weapon trails.
+7. Time it with `set_frame_timing`. Use a preset, ease by timing (`ease="in_out"`), or units on ones/twos.
+8. Review with `analyze_animation`. Watch for two-frame loops, duplicate frames, mechanical spacing, odd frames and one-frame colours. A high `residual` on parts that should stand still means line boil: copy those parts instead of redrawing them. It also reads reference GIFs, so study real timing with it.
+
 ## Tools in this MCP
-`add_frames`, `copy_frame`, `duplicate_frame_range`, `set_frame_duration`, `set_tag`, `tween_cel_positions_eased`, `oscillate_cel_positions`, `offset_cel_positions`, `tween_cel_scale_eased`, `move_region`, `render_onion_skin`, `compare_frames`, `audit_animation`, `export_tag`, `animation_workflow_guide`, `lint_pixel_art`.
+`analyze_animation`, `set_frame_timing`, `animate_layer_path`, `squash_stretch`, `apply_overlap`, `build_loop`, `generate_smear`, `draw_slash_arc`, `subpixel_move`, `add_frames`, `copy_frame`, `duplicate_frame_range`, `set_frame_duration`, `set_tag`, `tween_cel_positions_eased`, `oscillate_cel_positions`, `offset_cel_positions`, `tween_cel_scale_eased`, `move_region`, `render_onion_skin`, `compare_frames`, `audit_animation`, `export_tag`, `animation_workflow_guide`, `lint_pixel_art`.

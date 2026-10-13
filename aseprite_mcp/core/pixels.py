@@ -261,3 +261,102 @@ def parse_frames(filename: str, frames: str) -> list[int]:
     if bad:
         raise ValueError(f"Frame(s) out of range 1-{total}: {bad}")
     return out
+
+
+def get_durations(filename: str) -> list[int]:
+    """Per-frame durations in ms."""
+    ok, output = AsepriteCommand.execute_lua_script_checked(
+        'local spr = app.activeSprite\n'
+        'if not spr then print("ERROR:No active sprite") return end\n'
+        'for i, f in ipairs(spr.frames) do print("DUR:" .. math.floor(f.duration * 1000 + 0.5)) end',
+        filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not read durations")
+    return [int(line[4:]) for line in output.splitlines() if line.startswith("DUR:")]
+
+
+def set_durations(filename: str, durations: dict[int, int]) -> None:
+    """Set durations (ms) for 1-based frame indices."""
+    body = "\n".join(f"spr.frames[{int(i)}].duration = {int(ms) / 1000}" for i, ms in durations.items())
+    script = f"""
+    local spr = app.activeSprite
+    if not spr then print("ERROR:No active sprite") return end
+    {body}
+    spr:saveAs(spr.filename)
+    print("OK")
+    """
+    ok, output = AsepriteCommand.execute_lua_script_checked(script, filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not set durations")
+
+
+def ensure_frames(filename: str, count: int) -> None:
+    """Append empty frames until the sprite has at least `count` frames."""
+    script = f"""
+    local spr = app.activeSprite
+    if not spr then print("ERROR:No active sprite") return end
+    while #spr.frames < {int(count)} do
+        local f = spr:newEmptyFrame(#spr.frames + 1)
+        f.duration = spr.frames[#spr.frames - 1].duration
+    end
+    spr:saveAs(spr.filename)
+    print("OK")
+    """
+    ok, output = AsepriteCommand.execute_lua_script_checked(script, filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not add frames")
+
+
+def resequence_frames(filename: str, keys: list[int], sequence: list[int], tag: str = "") -> None:
+    """Replace the key frames with copies arranged in `sequence`.
+
+    keys: 1-based frame indices used as drawings. sequence: positions into
+    keys (0-based), e.g. [0, 1, 0, 2] for A-B-A-C. Copies every layer's cel
+    (image and position) and the duration; the new frames take the place of
+    the keys, and an optional tag covers them.
+    """
+    seq = ", ".join(str(keys[i]) for i in sequence)
+    k = ", ".join(str(i) for i in keys)
+    script = f"""
+    local spr = app.activeSprite
+    if not spr then print("ERROR:No active sprite") return end
+    local keys = {{{k}}}
+    local seq = {{{seq}}}
+    for _, i in ipairs(keys) do
+        if i < 1 or i > #spr.frames then print("ERROR:Frame " .. i .. " out of range") return end
+    end
+    local layers = {{}}
+    local function walk(ls)
+        for _, l in ipairs(ls) do
+            if l.isGroup then walk(l.layers) else layers[#layers + 1] = l end
+        end
+    end
+    walk(spr.layers)
+    local last = math.max(table.unpack(keys))
+    app.transaction(function()
+        -- Build the new run after the last key, then delete the keys
+        -- (a sprite can never lose its last frame this way).
+        for n, src in ipairs(seq) do
+            local f = spr:newEmptyFrame(last + n)
+            f.duration = spr.frames[src].duration
+            for _, l in ipairs(layers) do
+                local c = l:cel(src)
+                if c then
+                    local cel = spr:newCel(l, f, c.image:clone(), c.position)
+                    cel.opacity = c.opacity
+                end
+            end
+        end
+        table.sort(keys, function(a, b) return a > b end)
+        for _, i in ipairs(keys) do spr:deleteFrame(spr.frames[i]) end
+        local start = last + 1 - #keys
+        if "{lua_escape(tag)}" ~= "" then
+            spr:newTag(start, start + #seq - 1).name = "{lua_escape(tag)}"
+        end
+    end)
+    spr:saveAs(spr.filename)
+    print("OK")
+    """
+    ok, output = AsepriteCommand.execute_lua_script_checked(script, filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not rebuild frames")
