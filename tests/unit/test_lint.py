@@ -282,3 +282,13 @@ def test_simple_block_art_is_not_treated_as_upscaled():
     art = np.zeros((32, 32, 4), np.uint8)
     art[8:24, 8:24] = (200, 80, 80, 255)
     assert L.detect_scale(art) == 1
+
+
+def test_half_step_aa_on_every_step_is_fine():
+    # AA about half the step long on every corner is correct anti-aliasing.
+    assert L.check_banding(img("""
+####aaffffffffff
+....####aaffffff
+........####aaff
+............####
+""")) == []

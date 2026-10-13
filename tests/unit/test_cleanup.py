@@ -88,3 +88,61 @@ ffffff
     out, changed, kept = CL.despeckle(a)
     assert (4, 1) in changed and tuple(out[1, 4]) == (200, 80, 80, 255)
     assert (2, 2) in kept
+
+
+def _line_img(runs, size=(14, 40)):
+    from test_lint import _runs_to_chain
+    a = np.zeros((*size, 4), np.uint8)
+    for x, y in _runs_to_chain(runs):
+        a[y, x] = DARK
+    return a
+
+
+def _runs_of(a):
+    keys = L._keys(a)
+    (chain,) = L._thin_chains(keys == L._keys(a[a[..., 3] > 0][:1].reshape(1, 1, 4))[0, 0])
+    return [r["len"] for r in L.chain_runs(chain)]
+
+
+def test_fix_jaggies_straight_outlier_keeps_end_points():
+    a = _line_img([2, 2, 2, 1, 2, 2, 2, 2])
+    key = int(L._keys(a)[0, 0])
+    out, changed = CL.fix_jaggies(a, [key])
+    assert changed
+    assert L.check_jaggies(out, ["#281830"]) == []
+    ends = lambda img: (tuple(np.argwhere(img[..., 3] > 0)[0]), tuple(np.argwhere(img[..., 3] > 0)[-1]))
+    assert ends(out) == ends(a)
+    assert (out[..., 3] > 0).sum() == (a[..., 3] > 0).sum()
+
+
+def test_fix_jaggies_bumpy_curve():
+    a = _line_img([5, 4, 3, 2, 1, 2, 1, 3, 2, 3, 6], size=(14, 40))
+    key = int(L._keys(a)[0, 0])
+    assert L.check_jaggies(a, ["#281830"])
+    out, _ = CL.fix_jaggies(a, [key])
+    assert len(L.check_jaggies(out, ["#281830"])[0]["pixels"] if L.check_jaggies(out, ["#281830"]) else []) < \
+        len(L.check_jaggies(a, ["#281830"])[0]["pixels"])
+
+
+def test_break_banding_halves_aa():
+    a = img("""
+###aaafffffffff
+...###aaaffffff
+......###aaafff
+.........###aaa
+""")
+    assert L.check_banding(a)
+    out, changed = CL.break_banding(a)
+    assert L.check_banding(out) == []
+    assert changed
+    # The AA pixel next to each corner stays.
+    assert tuple(out[0, 3]) == tuple(a[0, 3])
+
+
+def test_dithered_areas_are_left_alone():
+    a = np.zeros((16, 16, 4), np.uint8)
+    for y in range(16):
+        for x in range(16):
+            a[y, x] = (200, 80, 80, 255) if (x + y) % 2 else (190, 76, 76, 255)
+    out, log = CL.cleanup(a, steps=("speckles", "corners", "jaggies", "banding"))
+    assert CL.changed_pixels(a, out) == []

@@ -34,17 +34,19 @@
 - **Detail density:** match the pixel size of details. Never add features smaller or finer than the existing ones (mixels in spirit).
 
 ## Clean-up of a user's sprite
-`cleanup_sprite` runs the safe, judgement-free fixes in this order:
+`cleanup_sprite` runs the rule-based fixes in this order:
 1. Soft alpha edges become fully opaque or fully clear.
 2. The pixel grid is recovered, including non-integer upscales, blur and JPEG.
-3. Near-identical colours merge, and a far-too-large palette is reduced to the size budget.
+3. Near-identical colours merge. A far-too-large palette from blur or resampling is reduced to the size budget; a clean sprite keeps its palette.
 4. Floating pixels are removed.
 5. Low-contrast specks are recoloured. Distinct single pixels (eyes, shines) are kept for review.
 6. Gaps in a single-colour outline are closed.
 7. Pixel-perfect pass on lines.
-8. Light pixels outside the outline are removed, unless the outline is selective.
+8. Line staircases get an even rhythm, keeping their end points.
+9. Bands that copy a staircase are shortened to about half a step.
+10. Light pixels outside the outline are removed, unless the outline is selective.
 
-It recognises the style first so deliberate traits stay, then lists the remaining issues. Jaggies, banding, pillow shading and readability problems need an artist's judgement: fix them by hand, guided by `lint_pixel_art` and `readability_preview`.
+Dithered areas are never touched by the pixel-level fixes. It recognises the style first so deliberate traits stay, then lists the remaining issues. Pillow shading, remaining jaggies on curves and readability problems need an artist's judgement: fix them by hand, guided by `lint_pixel_art` and `readability_preview`.
 
 ## Tools in this MCP
 `analyze_style`, `cleanup_sprite`, `lint_pixel_art` (respect_style), `analyze_palette`, `readability_preview`, `suggest_outline_color`, `generate_color_ramp`, `pixel_art_guide`.

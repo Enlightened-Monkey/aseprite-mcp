@@ -379,12 +379,19 @@ def _row_runs(keys_row: np.ndarray) -> list[tuple[int, int, int]]:
     return runs
 
 
-def _banding_pass(keys: np.ndarray, min_rows: int) -> list[list[tuple[int, int]]]:
-    """Find runs of colour B that follow a staircase of colour A step for step.
+def band_chains(keys: np.ndarray, min_rows: int = 3) -> list[list[dict]]:
+    """Runs of colour B that copy a staircase of colour A step for step.
 
-    Works row by row: in each row an A-run is directly followed (or preceded)
-    by a B-run; across consecutive rows the A-runs form a staircase and the
-    B-runs keep the same length. Returns pixel lists in (row, col) order.
+    Row by row, an A-run (a step, at most 8 px) is directly followed (or
+    preceded, `side` -1) by a B-run (a strip, at most 3 px wide). A band is
+    3+ consecutive rows where the A-runs form a staircase,
+    the B-runs keep the same length and cover more than 60% of the A-step
+    they hug (anti-aliasing about half a step long is fine; a full copy of
+    the step is banding). Thin 1-px bands need one more row. A-B-A / B-A-B
+    stripes between parallel lines are not bands.
+
+    Returns chains of {"row", "a": (a0, a1), "b": (b0, b1), "side", "a_color",
+    "b_color"} in row order.
     """
     rows = [_row_runs(keys[y]) for y in range(keys.shape[0])]
     pairs = []  # per row: list of (a, b, a_run, b_run, side)
@@ -396,7 +403,9 @@ def _banding_pass(keys: np.ndarray, min_rows: int) -> list[list[tuple[int, int]]
                     cb, b0, b1 = runs[j]
                     if cb == ca or not (b0 == a1 + 1 if side == 1 else b1 == a0 - 1):
                         continue
-                    # A-B-A or B-A-B is a stripe between parallel lines, not a band.
+                    # Bands are thin strips along a line's steps, not shading regions.
+                    if b1 - b0 + 1 > 3 or a1 - a0 + 1 > 8:
+                        continue
                     k, m = j + side, i - side
                     if 0 <= k < len(runs) and runs[k][0] == ca and (
                             runs[k][1] == b1 + 1 if side == 1 else runs[k][2] == b0 - 1):
@@ -407,7 +416,7 @@ def _banding_pass(keys: np.ndarray, min_rows: int) -> list[list[tuple[int, int]]
                     p.append((ca, cb, (a0, a1), (b0, b1), side))
         pairs.append(p)
 
-    bands, used = [], set()
+    chains, used = [], set()
     for y in range(len(pairs)):
         for start in pairs[y]:
             if (y, start) in used:
@@ -428,22 +437,21 @@ def _banding_pass(keys: np.ndarray, min_rows: int) -> list[list[tuple[int, int]]
                 cy, cur = cy + 1, nxt
                 chain.append((cy, cur))
             thin = all(b1 == b0 for _, (_, _, _, (b0, b1), _) in chain)
-            if len(chain) >= (min_rows + 1 if thin else min_rows):
+            cover = np.mean([(b1 - b0 + 1) / (a1 - a0 + 1) for _, (_, _, (a0, a1), (b0, b1), _) in chain])
+            if len(chain) >= (min_rows + 1 if thin else min_rows) and cover > 0.6:
                 used.update(chain)
-                px = []
-                for ry, (_, _, _, (b0, b1), _) in chain:
-                    px += [(ry, x) for x in range(b0, b1 + 1)]
-                bands.append(px)
-    return bands
+                chains.append([{"row": ry, "a": a, "b": b, "side": side, "a_color": ca, "b_color": cb}
+                               for ry, (ca, cb, a, b, side) in chain])
+    return chains
 
 
 def check_banding(img: np.ndarray, min_rows: int = 3) -> list[dict]:
     keys = _keys(img)
     pixels = []
-    for band in _banding_pass(keys, min_rows):
-        pixels += [(x, y) for y, x in band]
-    for band in _banding_pass(keys.T, min_rows):
-        pixels += [(x, y) for x, y in band]  # transposed: (row=x, col=y)
+    for chain in band_chains(keys, min_rows):
+        pixels += [(x, st["row"]) for st in chain for x in range(st["b"][0], st["b"][1] + 1)]
+    for chain in band_chains(keys.T, min_rows):  # transposed: row = x
+        pixels += [(st["row"], y) for st in chain for y in range(st["b"][0], st["b"][1] + 1)]
     if not pixels:
         return []
     return [_issue("banding", "warning",

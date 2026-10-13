@@ -77,7 +77,7 @@ When a feature won't read (a smile, a pose, a held object), make 2-4 variants on
 | Readability | Does it pass the 1x, blur, value and blind-read checks? |
 
 ## Automatic pass
-Run `cleanup_sprite` first on any rough, resized or noisy sprite. It recovers the pixel grid, merges near-duplicate colours, removes floating pixels and low-contrast specks, closes outline gaps, applies pixel-perfect lines and removes AA outside the outline, while keeping style traits it recognises. Everything it cannot judge (jaggies, banding, pillow shading, readability) is listed for a manual pass. See the `style` topic.
+Run `cleanup_sprite` first on any rough, resized or noisy sprite. It recovers the pixel grid, merges near-duplicate colours, removes floating pixels and low-contrast specks, closes outline gaps, applies pixel-perfect lines, evens out line staircases, shortens bands and removes AA outside the outline, while keeping style traits it recognises and never touching dithered areas. Everything it cannot judge (pillow shading, readability) is listed for a manual pass. See the `style` topic.
 
 ## Tools in this MCP
 `cleanup_sprite`, `analyze_style`, `lint_pixel_art` (orphans, doubles, jaggies, banding, pillow shading, colour count), `readability_preview`, `move_region`, `copy_region`, `erase_region`, `erase_color`, `draw_pixels`, `rotate_layer`, `flip_layer`, `import_image_as_layer`, `quantize_to_palette`, `duplicate_layer`, `set_layer_visibility`, `set_layer_opacity`, `adjust_hsl`, `get_color_stats`, `analyze_palette`.

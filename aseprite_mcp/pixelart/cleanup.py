@@ -13,11 +13,14 @@ leaves the rest to the artist (reported by the linter afterwards):
                surroundings, unless they read as AA or are high-contrast
                details (eye, shine) that may be deliberate
 6. corners   - pixel-perfect pass on line colours (remove L-corner doubles)
-7. outer AA  - lighter pixels outside the outline become transparent
-8. outline   - close gaps in a single-colour outline (only when the sprite
+7. jaggies   - even out the staircase rhythm of lines (end points kept)
+8. banding   - shorten bands that copy a staircase to about half a step
+9. outer AA  - lighter pixels outside the outline become transparent
+10. outline  - close gaps in a single-colour outline (only when the sprite
                uses one dark contour colour on >= 60% of its silhouette edge)
 
-Every step returns the new image and the pixels it changed.
+Every step returns the new image and the pixels it changed. Pixel-level
+fixes (speckles, corners, jaggies, banding) never touch dithered areas.
 """
 from collections import Counter
 
@@ -209,6 +212,12 @@ def reduce_colors(img: np.ndarray, target: int | None = None, min_delta: float =
     alias = {k: k for k in cols}
     merges = []
     alive = set(cols)
+    members = {k: [k] for k in cols}  # original colours now drawn as k
+
+    def drift_ok(a, b):
+        """Merging must not move any original colour further than min_delta."""
+        keep = a if counts[a] >= counts[b] else b
+        return all(float(np.linalg.norm(lab[m] - lab[keep])) < min_delta for m in members[a] + members[b])
 
     def find(k):
         while alias[k] != k:
@@ -223,7 +232,7 @@ def reduce_colors(img: np.ndarray, target: int | None = None, min_delta: float =
                 a, b = al[i], al[j]
                 d = float(np.linalg.norm(lab[a] - lab[b]))
                 pairs.append((d, d * min(counts[a], counts[b]) ** 0.5, a, b))
-        dupes = [p for p in pairs if p[0] < min_delta]
+        dupes = [p for p in pairs if p[0] < min_delta and drift_ok(p[2], p[3])]
         if dupes:
             d, _, a, b = min(dupes)
         elif target is not None and len(alive) > target:
@@ -233,6 +242,7 @@ def reduce_colors(img: np.ndarray, target: int | None = None, min_delta: float =
         keep, drop = (a, b) if counts[a] >= counts[b] else (b, a)
         alias[drop] = keep
         counts[keep] += counts[drop]
+        members[keep] += members.pop(drop)
         alive.discard(drop)
         merges.append({"from": L.rgb_to_hex(L._rgb(drop)), "to": L.rgb_to_hex(L._rgb(keep)),
                        "distance": round(d, 1)})
@@ -358,17 +368,183 @@ def close_outline(img: np.ndarray) -> tuple[np.ndarray, list]:
     return out, changed
 
 
+def _fill_colour(keys: np.ndarray, line: np.ndarray, x: int, y: int) -> int:
+    """Most common non-line colour among the 4 neighbours (-1 = transparent)."""
+    h, w = keys.shape
+    cands = []
+    for dx, dy in _N4:
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < w and 0 <= ny < h:
+            if not line[ny, nx]:
+                cands.append(int(keys[ny, nx]))
+        else:
+            cands.append(-1)
+    return Counter(cands).most_common(1)[0][0] if cands else -1
+
+
+def _set(out: np.ndarray, keys: np.ndarray, x: int, y: int, key: int) -> None:
+    out[y, x] = 0 if key == -1 else (*L._rgb(key), key & 255)
+    keys[y, x] = key
+
+
+def _window_lengths(runs: list[dict], bad: list[int]) -> list[tuple[int, int, list[int]]]:
+    """Group jaggy runs into windows and compute new, rhythm-fixing lengths.
+
+    Returns (first, last, new_lengths) per window. The sum of lengths is kept,
+    so the chain's end points do not move. Inside a trend (a curve), the
+    window is sorted to follow the trend; on a straight stretch, odd runs
+    move to the end of the stretch.
+    """
+    out = []
+    groups = []
+    for i in bad:
+        if groups and i <= groups[-1][-1] + 1:
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    n = len(runs)
+    for g in groups:
+        lo, hi = max(1, g[0] - 1), min(n - 2, g[-1] + 1)
+        if any(runs[k]["break"] for k in range(lo + 1, hi + 1)):
+            continue
+        before = L._slope_value(runs[lo - 1]) if lo - 1 >= 0 else None
+        after = L._slope_value(runs[hi + 1]) if hi + 1 < n else None
+        lens = [runs[k]["len"] for k in range(lo, hi + 1)]
+        if before is not None and after is not None and before != after:
+            new = sorted(lens, reverse=before > after)
+            if runs[lo]["axis"] == "v":  # slope value runs opposite to length for vertical runs
+                new = sorted(lens, reverse=before < after)
+        else:
+            # Straight stretch: extend over the plateau, push odd runs to its end.
+            common = Counter(lens).most_common(1)[0][0]
+            while lo - 1 >= 1 and runs[lo - 1]["len"] == common and not runs[lo]["break"]:
+                lo -= 1
+            while hi + 1 <= n - 2 and runs[hi + 1]["len"] == common and not runs[hi + 1]["break"]:
+                hi += 1
+            lens = [runs[k]["len"] for k in range(lo, hi + 1)]
+            odd = [v for v in lens if v != common]
+            new = [common] * (len(lens) - len(odd)) + sorted(odd, reverse=True)
+        if new != lens:
+            out.append((lo, hi, new))
+    return out
+
+
+def fix_jaggies(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list]:
+    """Even out the staircase rhythm of line colours without moving end points.
+
+    Uses the linter's run analysis; each flagged window of runs is re-laid
+    with the same total length (see _window_lengths). Pixels a line leaves
+    take the surrounding non-line colour; pixels it enters take the line
+    colour.
+    """
+    out = img.copy()
+    keys = L._keys(img)
+    changed = []
+    for key in line_keys:
+        for chain in L._thin_chains(keys == key):
+            runs = L.chain_runs(chain)
+            for lo, hi, new in _window_lengths(runs, L.jaggy_runs(runs)):
+                axes = {runs[k]["axis"] for k in range(lo, hi + 1)} - {None}
+                if len(axes) != 1:
+                    continue
+                axis_run = next(runs[k] for k in range(lo, hi + 1) if runs[k]["len"] >= 2)
+                (x0, y0), (x1, y1) = axis_run["pixels"][:2]
+                step = (x1 - x0, y1 - y0)
+                diags = {(runs[k + 1]["pixels"][0][0] - runs[k]["pixels"][-1][0],
+                          runs[k + 1]["pixels"][0][1] - runs[k]["pixels"][-1][1]) for k in range(lo, hi)}
+                if len(diags) != 1:
+                    continue
+                diag = diags.pop()
+                old = [p for k in range(lo, hi + 1) for p in runs[k]["pixels"]]
+                pts, (x, y) = [], old[0]
+                for i, length in enumerate(new):
+                    for j in range(length):
+                        pts.append((x, y))
+                        if j < length - 1:
+                            x, y = x + step[0], y + step[1]
+                    if i < len(new) - 1:
+                        x, y = x + diag[0], y + diag[1]
+                if pts[-1] != old[-1]:
+                    continue
+                line = keys == key
+                for (px, py) in set(pts) - set(old):
+                    if keys[py, px] != key:
+                        _set(out, keys, px, py, key)
+                        changed.append((px, py))
+                line = keys == key
+                for (px, py) in set(old) - set(pts):
+                    line[py, px] = False
+                    _set(out, keys, px, py, _fill_colour(keys, line, px, py))
+                    changed.append((px, py))
+    return out, changed
+
+
+def break_banding(img: np.ndarray) -> tuple[np.ndarray, list]:
+    """Shorten bands that copy a staircase: anti-aliasing should cover about
+    half a step, starting at the corner. Thin 1-px bands along 45-degree
+    lines are dropped on every other step. Freed pixels take the colour on
+    the band's far side.
+    """
+    out = img.copy()
+    changed = []
+    for transposed in (False, True):
+        keys = L._keys(out)
+        k = keys.T if transposed else keys
+        n_cols = k.shape[1]
+        for chain in L.band_chains(k):
+            for idx, st in enumerate(chain):
+                (a0, a1), (b0, b1), side, row = st["a"], st["b"], st["side"], st["row"]
+                la, lb = a1 - a0 + 1, b1 - b0 + 1
+                if la == 1 and lb == 1:
+                    drop = [b0] if idx % 2 else []
+                else:
+                    keep = max(1, la // 2)
+                    if lb <= keep:
+                        continue
+                    drop = list(range(b0 + keep, b1 + 1)) if side == 1 else list(range(b0, b1 - keep + 1))
+                far = b1 + 1 if side == 1 else b0 - 1
+                fill = int(k[row, far]) if 0 <= far < n_cols else -1
+                for c in drop:
+                    x, y = (row, c) if transposed else (c, row)
+                    out[y, x] = 0 if fill == -1 else (*L._rgb(fill), fill & 255)
+                    changed.append((x, y))
+    return out, changed
+
+
+def dither_mask(img: np.ndarray) -> np.ndarray:
+    """Pixels that belong to checkerboard dithering (plus a 1-px margin).
+
+    Pixel-level fixes leave these alone: a dither pattern is made of
+    "single" pixels and short diagonal strips on purpose.
+    """
+    keys = L._keys(img)
+    a, b = keys[:-1, :-1], keys[:-1, 1:]
+    c, d = keys[1:, :-1], keys[1:, 1:]
+    checker = (a == d) & (b == c) & (a != b) & (a != -1) & (b != -1)
+    mask = np.zeros(keys.shape, dtype=bool)
+    for dy in (0, 1):
+        for dx in (0, 1):
+            mask[dy:dy + checker.shape[0], dx:dx + checker.shape[1]] |= checker
+    grown = mask.copy()
+    grown[1:] |= mask[:-1]
+    grown[:-1] |= mask[1:]
+    grown[:, 1:] |= mask[:, :-1]
+    grown[:, :-1] |= mask[:, 1:]
+    return grown
+
+
 # ------------------------------------------------------------ runner
 
-STEPS = ("alpha", "grid", "palette", "orphans", "speckles", "outline", "corners", "outer_aa")
+STEPS = ("alpha", "grid", "palette", "orphans", "speckles", "outline", "corners", "jaggies", "banding",
+         "outer_aa")
 
 
 def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: bool = True,
             line_colors: list[str] | None = None, style: dict | None = None) -> tuple[np.ndarray, dict]:
     """Run the clean-up pipeline. Returns (clean image, log).
 
-    max_colors: 0 = automatic (reduce only when there are far more colours
-    than the size budget), -1 = never reduce (near-duplicates still merge),
+    max_colors: 0 = automatic (reduce to the size budget only for blurred or
+    resampled input with far too many colours), -1 = never reduce (near-duplicates still merge),
     N = reduce to N colours. keep_details=False also recolours high-contrast
     single pixels. `style` (from analyze_style) keeps deliberate traits:
     a selective outline keeps its light edge pixels.
@@ -405,7 +581,9 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
         target = None
         if max_colors > 0:
             target = max_colors
-        elif max_colors == 0 and n > 2 * budget:
+        elif max_colors == 0 and filtered and n > 2 * budget:
+            # Only blurred/resampled art gets cut to the budget; a clean
+            # sprite's palette is the artist's choice.
             target = budget
         if target is not None and n > 64:
             cur = _prequantize(cur, max(target * 2, 32))
@@ -414,11 +592,22 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
         keys = L._keys(cur)
         note("palette", colors_before=n, merge_distance=8.0 if filtered else 3.0, colors_after=len(np.unique(keys[keys != -1])),
              target=target, merges=merges[:20], merge_count=len(merges))
+    def protect(before, after, px):
+        """Undo changes inside dithered areas; returns the kept change list."""
+        mask = dither_mask(before)
+        if not mask.any():
+            return after, px
+        after = after.copy()
+        after[mask] = before[mask]
+        return after, [(x, y) for x, y in px if not mask[y, x]]
+
     if "orphans" in steps:
         cur, px = remove_floating(cur)
         note("orphans", removed=len(px), pixels=px[:40])
     if "speckles" in steps:
+        prev = cur
         cur, px, kept = despeckle(cur, 15.0 if keep_details else 100.0)
+        cur, px = protect(prev, cur, px)
         note("speckles", recoloured=len(px), pixels=px[:40], kept_for_review=kept[:40])
     if "outline" in steps:
         cur, px = close_outline(cur)
@@ -426,8 +615,21 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
     if "corners" in steps:
         keys = L._keys(cur)
         lines = [k for k, _ in L._resolve_line_colors(cur, line_colors)]
+        prev = cur
         cur, px = fix_l_corners(cur, lines)
+        cur, px = protect(prev, cur, px)
         note("corners", fixed=len(px), pixels=px[:40])
+    if "jaggies" in steps:
+        lines = [k for k, _ in L._resolve_line_colors(cur, line_colors)]
+        prev = cur
+        cur, px = fix_jaggies(cur, lines)
+        cur, px = protect(prev, cur, px)
+        note("jaggies", changed=len(px), pixels=px[:40])
+    if "banding" in steps:
+        prev = cur
+        cur, px = break_banding(cur)
+        cur, px = protect(prev, cur, px)
+        note("banding", changed=len(px), pixels=px[:40])
     if "outer_aa" in steps:
         if style and style.get("outline", {}).get("style") == "selective":
             note("outer_aa", skipped="selective outline lightens edges on purpose")
@@ -435,3 +637,10 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
             cur, px = remove_outer_aa(cur)
             note("outer_aa", removed=len(px), pixels=px[:40])
     return cur, log
+
+
+def changed_pixels(before: np.ndarray, after: np.ndarray) -> list[tuple[int, int]]:
+    """Pixels whose visible value differs (transparent pixels are all equal)."""
+    a = np.where(before[..., 3:4] > 0, before, 0)
+    b = np.where(after[..., 3:4] > 0, after, 0)
+    return [(int(x), int(y)) for y, x in zip(*np.nonzero((a != b).any(axis=-1)))]

@@ -401,10 +401,15 @@ async def cleanup_sprite(
       single pixels such as pupils or shines are kept and listed for review)
     - outline: gaps in a single dark contour are closed
     - corners: pixel-perfect pass on line colours (L-corner doubles removed)
+    - jaggies: line staircases get an even rhythm (end points stay put)
+    - banding: strips that copy a staircase step for step are shortened to
+      about half a step from the corner
     - outer_aa: light pixels outside the outline are removed (skipped for a
       selective outline)
+    Dithered areas are never touched by the pixel-level fixes. On clean,
+    professional sprites the pass changes ~1% of pixels visibly.
     Afterwards it lints the result and lists what still needs a human eye
-    (jaggies, banding, pillow shading...) - fix those by hand.
+    (pillow shading, remaining jaggies, readability) - fix those by hand.
 
     Output: for an Aseprite file of unchanged size, the result goes to a new
     layer "<layer> clean" (or "clean") and the other layers are hidden; with
@@ -419,9 +424,10 @@ async def cleanup_sprite(
         layer_name: Clean only this layer (default: the visible composite)
         output: Output path for a new file (see above)
         steps: Comma-separated subset of: alpha, grid, palette, orphans,
-            speckles, outline, corners, outer_aa (default: all)
-        max_colors: 0 = automatic, -1 = keep colour count (still merges
-            near-duplicates), N = reduce to N colours
+            speckles, outline, corners, jaggies, banding, outer_aa (default: all)
+        max_colors: 0 = automatic (blurred/resampled input is reduced to a
+            size budget; clean art keeps its palette apart from invisible
+            near-duplicates), -1 = keep colour count, N = reduce to N colours
         keep_details: Keep high-contrast single pixels (default true)
         line_colors: Comma-separated hex colours that are lines (default: auto)
         in_place: Overwrite layer_name instead of adding a layer
@@ -433,8 +439,6 @@ async def cleanup_sprite(
         issues, and a before/after image (changed pixels boxed when the size
         is unchanged).
     """
-    import numpy as np
-
     from ..pixelart import cleanup as CL
     from ..pixelart.style import analyze_style as _analyze
 
@@ -474,10 +478,7 @@ async def cleanup_sprite(
     except ValueError as e:
         return f"Failed to save clean-up: {e}"
 
-    changed = None
-    if same_size:
-        diff = (clean != img).any(axis=-1)
-        changed = [(int(x), int(y)) for y, x in zip(*np.nonzero(diff))]
+    changed = CL.changed_pixels(img, clean) if same_size else None
     remaining = L.lint(clean, style["lint"]["checks"], _split(line_colors))
     report = {
         "output": where,
