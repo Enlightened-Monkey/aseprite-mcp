@@ -44,3 +44,6 @@ ENV/
 !examples/swordsman/swordsman.png
 !examples/swordsman/swordsman_slash.gif
 !examples/swordsman/swordsman_slash_sheet.png
+
+# Private training materials (copyrighted, never commit)
+train_materials/

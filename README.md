@@ -188,7 +188,10 @@ The pixel-art toolbox: clean outlines, palette-respecting blends, and shading va
 | `set_palette` | Set the palette from a list of hex colors |
 | `list_palette_presets` | List built-in retro palettes |
 | `apply_palette_preset` | Apply a preset: `gameboy`, `pico8`, `c64`, `cga`, `dawnbringer16`, `dawnbringer32`, `grayscale_4`, `monochrome` |
-| `generate_color_ramp` | Build a dark→light shading ramp with hue shifting from a base color |
+| `generate_color_ramp` | Build a dark→light shading ramp: shadows turn toward violet, highlights toward yellow (shortest arc), with a saturation arc |
+| `shade_color` | One or more hue-shifted shadow/highlight steps from a colour |
+| `suggest_outline_color` | Tinted near-black outline colour that harmonises with the sprite |
+| `analyze_palette` | Colour budget for the sprite size, near-duplicate colours, pure black, hue-shift direction of every shading pair |
 | `quantize_to_palette` | Snap every pixel to the nearest palette color |
 | `remap_colors_in_cel_range` | Remap specific colors across a frame range |
 | `set_color_mode` | Convert between RGB, grayscale, and indexed |
@@ -274,6 +277,16 @@ Batch-mode equivalents of what a human artist gets from the Aseprite UI.
 | `start_preview_server` / `stop_preview_server` | Serve exported files over local HTTP |
 | `animation_workflow_guide` | Returns a step-by-step workflow guide for the LLM |
 
+### Pixel-Art Craft
+
+Pixel-art technique knowledge and checks. Algorithms run in Python on the frame's pixels (`aseprite_mcp/pixelart/`); the server's instructions carry the core rules, and each topic has a detailed guide.
+
+| Tool | Description |
+|------|-------------|
+| `lint_pixel_art` | Finds stray pixels, L-corner doubles, jaggy line steps, banding, pillow shading, too many / near-duplicate colours, pure black, dither on small sprites and AA outside the outline. Returns a JSON report plus an image with every flagged pixel boxed |
+| `readability_preview` | One contact sheet: 1x, 2x, zoomed, blurred, silhouette, value-only and on light/mid/dark backgrounds |
+| `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
+
 ### Scripting
 
 | Tool | Description |
@@ -282,10 +295,11 @@ Batch-mode equivalents of what a human artist gets from the Aseprite UI.
 
 ## Recommended Workflow for LLMs
 
+0. **Read the rules**: `pixel_art_guide("workflow")`, then the guide for whatever you are about to do.
 1. **Plan the palette first**: `generate_color_ramp` for each material (skin, armor, blade), or `apply_palette_preset` for a retro look.
 2. **Build in layers**: background / body / equipment / effects, so parts can be animated and edited independently.
 3. **Draw coarse to fine**: silhouette with `draw_rectangle_at` / `draw_ellipse_at` / `fill_area_at`, then refine with `draw_pixels_at`.
-4. **Look at your work**: `export_frame` at 8×, inspect, fix, repeat. Use `get_color_stats` to keep the palette tight.
+4. **Look at your work**: `readability_preview` after each pass, `lint_pixel_art` to find mistakes, `analyze_palette` to keep the palette tight. Fix and repeat.
 5. **Shade with intent**: `adjust_hsl` for shadow layers, `apply_dither_gradient` for blends, `outline_cel` for readability.
 6. **Animate with the cel tools**: `propagate_cels`, then `tween_cel_positions_eased` / `oscillate_cel_positions`; verify with `render_onion_skin` and `compare_frames`; export with `export_tag`.
 

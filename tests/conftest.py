@@ -16,6 +16,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "unit"))  # unit-test helpers
 
 import aseprite_mcp.tools  # noqa: F401  (registers all tools)
 from aseprite_mcp.tools import canvas, drawing

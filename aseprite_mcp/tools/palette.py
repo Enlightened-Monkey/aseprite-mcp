@@ -1,4 +1,3 @@
-import colorsys
 import json
 import os
 from typing import List
@@ -268,49 +267,47 @@ async def apply_palette_preset(filename: str, preset: str) -> str:
 async def generate_color_ramp(
     base_color: str,
     steps: int = 5,
-    hue_shift_degrees: float = 20,
-    lightness_range: float = 0.5,
+    base_index: int = -1,
+    hue_shift_per_step: float = 16,
+    darkest_value: float = 20,
+    lightest_value: float = 97,
+    saturation_curve: str = "arc",
+    details: bool = False,
 ) -> str:
-    """Generate a shading ramp (dark to light) from a base color.
+    """Generate a hue-shifted shading ramp (dark to light) around a base color.
 
-    Produces the standard pixel-art shading technique of hue-shifting:
-    shadows lean cooler (hue shifted one way), highlights lean warmer.
-    Use the returned colors for shading instead of plain darker/lighter
-    versions of the same hue.
+    Pixel-art ramps shift hue, not just brightness: each darker step rotates
+    the hue toward violet (~270 deg) and each lighter step toward yellow
+    (~60 deg), always along the shorter way round the colour wheel, so warm
+    colours get magenta/red shadows and greens get teal shadows. Value moves
+    evenly between darkest_value and lightest_value; with the "arc"
+    saturation curve the mids stay richest, the darkest step is a little
+    duller and the top step washes out to a tinted near-white.
 
     Args:
         base_color: Hex color the ramp is built around, e.g. "#D04648"
-        steps: Number of colors in the ramp, 2-16 (default 5)
-        hue_shift_degrees: Total hue rotation across the ramp (default 20)
-        lightness_range: Total lightness span across the ramp, 0-1 (default 0.5)
+        steps: Number of colors, 2-16 (default 5; 2-3 for tiny sprites, 4-6 typical)
+        base_index: Position of the base color in the ramp, 0 = darkest
+            (default -1 = middle, slightly toward the dark end)
+        hue_shift_per_step: Hue rotation per step in degrees (default 16; 10-30 is typical)
+        darkest_value: HSV value (0-100) of the darkest step (default 20)
+        lightest_value: HSV value (0-100) of the lightest step (default 97)
+        saturation_curve: "arc" (default), "flat", "sat_shadows" or "sat_highlights"
+        details: When true, return {hex, h, s, v} objects instead of hex strings
 
     Returns:
-        JSON array of hex colors ordered darkest to lightest.
+        JSON array ordered darkest to lightest.
     """
-    rgb = _parse_hex_color(base_color)
-    if rgb is None:
-        return f"Invalid color value: {base_color}"
-    if not (2 <= steps <= 16):
-        return "steps must be between 2 and 16"
-    if not (0 <= lightness_range <= 1):
-        return "lightness_range must be between 0 and 1"
+    from ..pixelart.color import generate_ramp, hex_to_rgb
 
-    r, g, b = (c / 255 for c in rgb)
-    h, l, s = colorsys.rgb_to_hls(r, g, b)
-
-    ramp = []
-    mid = (steps - 1) / 2
-    for i in range(steps):
-        # t in [-0.5, 0.5]: negative = shadow side, positive = highlight side
-        t = (i - mid) / (steps - 1) if steps > 1 else 0
-        nh = (h - t * (hue_shift_degrees / 360)) % 1.0
-        nl = min(1.0, max(0.0, l + t * lightness_range))
-        # Shadows slightly more saturated, highlights slightly less
-        ns = min(1.0, max(0.0, s - t * 0.15))
-        nr, ng, nb = colorsys.hls_to_rgb(nh, nl, ns)
-        ramp.append("#{:02X}{:02X}{:02X}".format(
-            round(nr * 255), round(ng * 255), round(nb * 255)))
-    return json.dumps(ramp)
+    try:
+        ramp = generate_ramp(
+            hex_to_rgb(base_color), steps, None if base_index < 0 else base_index,
+            hue_shift_per_step, darkest_value, lightest_value, saturation_curve,
+        )
+    except ValueError as e:
+        return str(e)
+    return json.dumps(ramp if details else [c["hex"] for c in ramp])
 
 
 @mcp.tool()
