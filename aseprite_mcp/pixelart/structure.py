@@ -82,17 +82,26 @@ def line_candidates(img: np.ndarray, contrast: float = 0.1, edge_contrast: float
     LIGHTER = 9.0  # transparency: lighter than anything
     lum_t = np.where(opaque, lum, LIGHTER)
     cand = np.zeros(opaque.shape, dtype=bool)
+    # Outside the canvas is unknown, not transparent: repeat the edge, so a
+    # full scene does not get a fake outline along the canvas border.
+    edge_pad = np.pad(lum_t, 2, mode="edge")
+    h, w = lum.shape
+
+    def side(dx, dy):
+        """Lightness of the neighbour at (+dx, +dy)."""
+        return edge_pad[2 + dy:2 + dy + h, 2 + dx:2 + dx + w]
+
     for dx, dy in _DIRS:
-        a = _shifted(lum_t, dx, dy, LIGHTER)     # one side
-        b = _shifted(lum_t, -dx, -dy, LIGHTER)   # other side
+        a = side(dx, dy)       # one side
+        b = side(-dx, -dy)     # other side
         # Against transparency a lower contrast suffices: an outline next to
         # the shadow side of a part is only slightly darker than it.
         need = np.where((a >= LIGHTER) | (b >= LIGHTER), edge_contrast, contrast)
         w1 = (a > lum + need) & (b > lum + need)
         # Two-pixel strips: P and its neighbour Q (in +d) are similar and
         # both darker than what lies beyond them.
-        q = _shifted(lum_t, dx, dy, LIGHTER)
-        beyond_q = _shifted(lum_t, 2 * dx, 2 * dy, LIGHTER)
+        q = side(dx, dy)
+        beyond_q = side(2 * dx, 2 * dy)
         pair = (np.abs(q - lum) < 0.06) & (q < LIGHTER)
         need2 = np.where((b >= LIGHTER) | (beyond_q >= LIGHTER), edge_contrast, contrast)
         w2 = pair & (b > lum + need2) & (beyond_q > np.maximum(lum, q) + need2)
@@ -114,7 +123,7 @@ def analyze(img: np.ndarray, contrast: float = 0.1) -> dict:
 
     # --- line art: candidate strips that form elongated strokes
     cand = line_candidates(img, contrast)
-    pad = np.pad(keys, 1, constant_values=-1)
+    pad = np.pad(keys, 1, mode="edge")  # the canvas border is not air
     near_air = np.zeros((h, w), dtype=bool)
     for dx, dy in _N4:
         near_air |= pad[1 + dy:1 + dy + h, 1 + dx:1 + dx + w] == -1

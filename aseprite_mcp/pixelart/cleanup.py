@@ -268,15 +268,19 @@ def despeckle(img: np.ndarray, max_delta: float = 15.0) -> tuple[np.ndarray, lis
 
     Only singles that are not plausible AA and are close (OKLab distance <
     max_delta) to the dominant neighbour colour are changed. Distinct singles
-    (pupils, shines, accents) are kept and returned for review.
+    (pupils, shines, accents) are kept and returned for review. A colour that
+    appears as a single pixel many times (lint.PARTICLE_REPEATS or more) is a
+    deliberate particle or texture - snow, stars, rain, sparkle, fur flecks -
+    and all its singles are kept.
     """
     out = img.copy()
     keys = L._keys(img)
     h, w = keys.shape
     pad = np.pad(keys, 1, constant_values=-1)
     changed, kept = [], []
+    # check_orphans already sets particles (repeated single-pixel colours) apart.
     for issue in L.check_orphans(img):
-        if issue["severity"] != "info":
+        if issue["check"] != "orphans" or issue["severity"] != "info":
             continue
         for x, y in issue["pixels"]:
             nbs = [int(pad[1 + y + dy, 1 + x + dx]) for dx, dy in _N8]
@@ -489,18 +493,30 @@ def fix_jaggies(img: np.ndarray, line_keys: list) -> tuple[np.ndarray, list]:
 
 
 def break_banding(img: np.ndarray) -> tuple[np.ndarray, list]:
-    """Shorten bands that copy a staircase: anti-aliasing should cover about
-    half a step, starting at the corner. Thin 1-px bands along 45-degree
-    lines are dropped on every other step. Freed pixels take the colour on
-    the band's far side.
+    """Shorten bands that copy a line's staircase: anti-aliasing should
+    cover about half a step, starting at the corner. Thin 1-px bands along
+    45-degree lines are dropped on every other step. Freed pixels take the
+    colour on the band's far side.
+
+    Only AA-like bands are touched: the staircase they hug is detected line
+    art and the band's tone lies between the line and what is beyond it.
+    Parallel tone strips that model a form (a tusk, a rope, a pipe) are
+    shading, not banding, and are left alone (the linter still lists them).
     """
+    from .structure import analyze as _structure
     out = img.copy()
     changed = []
+    lines = _structure(img)["lines"]
+    lum = L.lightness(img[..., :3])
     for transposed in (False, True):
         keys = L._keys(out)
         k = keys.T if transposed else keys
+        lmask = lines.T if transposed else lines
+        lm = lum.T if transposed else lum
         n_cols = k.shape[1]
         for chain in L.band_chains(k):
+            if not L.band_is_aa(chain, k, lmask, lm):
+                continue
             for idx, st in enumerate(chain):
                 (a0, a1), (b0, b1), side, row = st["a"], st["b"], st["side"], st["row"]
                 la, lb = a1 - a0 + 1, b1 - b0 + 1
@@ -554,8 +570,10 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
 
     max_colors: 0 = automatic (reduce to the size budget only for blurred or
     resampled input with far too many colours), -1 = never reduce (near-duplicates still merge),
-    N = reduce to N colours. keep_details=False also recolours high-contrast
-    single pixels. `style` (from analyze_style) keeps deliberate traits:
+    N = reduce to N colours. keep_details=True (default) only fixes what the
+    linter rates as a warning: lines on the outline, low-contrast specks;
+    inner line art, textures and high-contrast single pixels are reported
+    but kept. keep_details=False fixes those too. `style` (from analyze_style) keeps deliberate traits:
     a selective outline keeps its light edge pixels.
     """
     unknown = [s for s in steps if s not in STEPS]
@@ -622,14 +640,13 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
         cur, px = close_outline(cur)
         note("outline", closed=len(px), pixels=px[:40])
     if "corners" in steps:
-        keys = L._keys(cur)
-        lines = [k for k, _ in L._resolve_line_colors(cur, line_colors)]
+        lines = [(k, m) for k, m, sure in L.line_masks(cur, line_colors) if sure or not keep_details]
         prev = cur
         cur, px = fix_l_corners(cur, lines)
         cur, px = protect(prev, cur, px)
         note("corners", fixed=len(px), pixels=px[:40])
     if "jaggies" in steps:
-        lines = [k for k, _ in L._resolve_line_colors(cur, line_colors)]
+        lines = [(k, m) for k, m, sure in L.line_masks(cur, line_colors) if sure or not keep_details]
         prev = cur
         cur, px = fix_jaggies(cur, lines)
         cur, px = protect(prev, cur, px)

@@ -40,6 +40,9 @@ def _opaque_bbox_height(img: np.ndarray) -> int:
 
 # ---------------------------------------------------------------- orphans
 
+PARTICLE_REPEATS = 6
+
+
 def check_orphans(img: np.ndarray) -> list[dict]:
     """Single pixels that share their colour with none of their 8 neighbours.
 
@@ -70,6 +73,12 @@ def check_orphans(img: np.ndarray) -> list[dict]:
         if lo + 0.02 < light[y, x] < hi - 0.02:
             continue  # sits between neighbour values: reads as AA
         noise.append((x, y))
+    # A colour used as a single pixel many times is a deliberate particle or
+    # texture (snow, stars, rain, sparkle), not noise.
+    per_colour = Counter(int(keys[y, x]) for x, y in noise)
+    particle_keys = {k for k, n in per_colour.items() if n >= PARTICLE_REPEATS}
+    particles = [(x, y) for x, y in noise if int(keys[y, x]) in particle_keys]
+    noise = [(x, y) for x, y in noise if int(keys[y, x]) not in particle_keys]
     issues = []
     if floating:
         issues.append(_issue("orphans", "warning",
@@ -79,6 +88,12 @@ def check_orphans(img: np.ndarray) -> list[dict]:
         issues.append(_issue("orphans", "info",
             f"{len(noise)} single pixel(s) differ from all neighbours and are not between neighbour values. "
             "Keep only deliberate ones (eye, shine); stray dots read as noise.", noise))
+    if particles:
+        cols = ", ".join(rgb_to_hex(_rgb(k)) for k in sorted(particle_keys)[:6])
+        issues.append(_issue("particles", "info",
+            f"{len(particles)} single pixel(s) in {len(particle_keys)} colour(s) that repeat as single pixels "
+            f"({cols}): read as deliberate particles or texture (snow, stars, sparkle). Left out of the noise "
+            "count.", particles))
     return issues
 
 
@@ -468,19 +483,49 @@ def band_chains(keys: np.ndarray, min_rows: int = 3) -> list[list[dict]]:
     return chains
 
 
+def band_is_aa(chain: list[dict], k: np.ndarray, lmask: np.ndarray, lum: np.ndarray) -> bool:
+    """Is this band anti-aliasing copying a line's staircase?
+
+    True when most of the staircase it hugs is detected line art and the
+    band's tone lies between the line and what is beyond the band. Parallel
+    tone strips that model a form (a tusk, a rope, a pipe) are not.
+    """
+    first = chain[0]
+    a_line = sum(lmask[st["row"], st["a"][0]:st["a"][1] + 1].mean() > 0.5 for st in chain)
+    far = first["b"][1] + 1 if first["side"] == 1 else first["b"][0] - 1
+    if a_line < len(chain) / 2 or not 0 <= far < k.shape[1] or k[first["row"], far] == -1:
+        return False
+    la = float(lum[first["row"], first["a"][0]])
+    lb = float(lum[first["row"], first["b"][0]])
+    lf = float(lum[first["row"], far])
+    return min(la, lf) < lb < max(la, lf)
+
+
 def check_banding(img: np.ndarray, min_rows: int = 3) -> list[dict]:
+    from .structure import analyze as _structure
     keys = _keys(img)
-    pixels = []
-    for chain in band_chains(keys, min_rows):
-        pixels += [(x, st["row"]) for st in chain for x in range(st["b"][0], st["b"][1] + 1)]
-    for chain in band_chains(keys.T, min_rows):  # transposed: row = x
-        pixels += [(st["row"], y) for st in chain for y in range(st["b"][0], st["b"][1] + 1)]
-    if not pixels:
-        return []
-    return [_issue("banding", "warning",
-        f"{len(pixels)} pixel(s) form bands that copy a neighbouring staircase step for step. Break the "
-        "alignment: shorten or drop the band on some steps, or use a darker shade so it merges with the line.",
-        pixels)]
+    lines = _structure(img)["lines"]
+    lum = lightness(img[..., :3])
+    aa_px, form_px = [], []
+    for transposed in (False, True):
+        k = keys.T if transposed else keys
+        lm, lu = (lines.T, lum.T) if transposed else (lines, lum)
+        for chain in band_chains(k, min_rows):
+            px = [(st["row"], c) if transposed else (c, st["row"])
+                  for st in chain for c in range(st["b"][0], st["b"][1] + 1)]
+            (aa_px if band_is_aa(chain, k, lm, lu) else form_px).extend(px)
+    issues = []
+    if aa_px:
+        issues.append(_issue("banding", "warning",
+            f"{len(aa_px)} pixel(s) of anti-aliasing copy a line's staircase step for step (banding). Shorten "
+            "the AA to about half a step from the corner, drop it on some steps, or use a darker shade so it "
+            "merges with the line.", aa_px))
+    if form_px:
+        issues.append(_issue("banding", "info",
+            f"{len(form_px)} pixel(s) form parallel tone strips that follow a staircase. Fine when they model "
+            "a form (a tusk, a rope, a rounded edge); if they only echo the outline, vary their length.",
+            form_px))
+    return issues
 
 
 # ------------------------------------------------------------- pillow

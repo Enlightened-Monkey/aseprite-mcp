@@ -292,3 +292,27 @@ def test_half_step_aa_on_every_step_is_fine():
 ........####aaff
 ............####
 """)) == []
+
+
+def test_repeated_single_colour_reads_as_particles():
+    sky = np.zeros((20, 20, 4), np.uint8)
+    sky[...] = (60, 80, 120, 255)
+    flakes = [(2, 2), (8, 3), (15, 4), (4, 9), (11, 10), (17, 12), (6, 16)]
+    for x, y in flakes:
+        sky[y, x] = (230, 240, 250, 255)
+    sky[14, 3] = (200, 30, 30, 255)               # one odd red dot: real noise
+    issues = L.check_orphans(sky)
+    assert [tuple(p) for p in checks(issues, "particles")[0]["pixels"]] == flakes
+    assert [tuple(p) for i in checks(issues, "orphans") for p in i["pixels"]] == [(3, 14)]
+
+
+def test_form_strips_are_info_not_warning():
+    # Light and mid tone strips running along a rounded form, no line art.
+    a = img("""
+fffwwwbbbaaaaaaaaaaa
+ffffffwwwbbbaaaaaaaa
+fffffffffwwwbbbaaaaa
+ffffffffffffwwwbbbaa
+""")
+    issues = L.check_banding(a)
+    assert issues and all(i["severity"] == "info" for i in issues)

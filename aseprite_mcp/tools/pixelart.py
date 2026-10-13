@@ -428,7 +428,10 @@ async def cleanup_sprite(
         max_colors: 0 = automatic (blurred/resampled input is reduced to a
             size budget; clean art keeps its palette apart from invisible
             near-duplicates), -1 = keep colour count, N = reduce to N colours
-        keep_details: Keep high-contrast single pixels (default true)
+        keep_details: Default true: automatic fixes on the outline and noise
+            only; inner line art, textures, particles (snow, stars) and
+            high-contrast single pixels are kept and reported. False: fix
+            inner lines and recolour all specks too.
         line_colors: Comma-separated hex colours that are lines (default: auto)
         in_place: Overwrite layer_name instead of adding a layer
         remove_background: For opaque images, make a colour shared by all
