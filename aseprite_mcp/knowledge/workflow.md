@@ -66,9 +66,9 @@ A game character usually covers about 0.5-4% of the screen area. 2-3% feels comf
 Default frame counts and timings are in the `animation` topic.
 
 ## Working on an existing sprite
-1. `analyze_style` to learn its outline, palette, light direction and edge treatment.
+1. `analyze_style` to learn its outline, palette, light direction and edge treatment; `analyze_structure` to see its line art, parts and shading roles.
 2. If it is rough, resized or noisy, run `cleanup_sprite`.
 3. Edit using only its palette and rules (`style` topic), then `lint_pixel_art(respect_style=true)`.
 
 ## Tools in this MCP
-`analyze_style`, `cleanup_sprite`, `draw_clean_line`, `draw_smooth_curve`, `outline_sprite`, `antialias_lines`, `dither_fill`, `gradient_map`, `reduce_colors`, `create_canvas`, `add_layer`, `set_layer_opacity`, `set_layer_visibility`, `generate_color_ramp`, `analyze_palette`, `set_palette`, `draw_path`, `draw_line`, `draw_pixels`, `fill_area`, `outline_cel`, `suggest_outline_color`, `shade_color`, `replace_color`, `quantize_to_palette`, `lint_pixel_art`, `readability_preview`, `export_frame`, `copy_frame`, `move_region`, `set_frame_duration`, `set_tag`, `audit_animation`, `compare_frames`, `render_onion_skin`, `animation_workflow_guide`, `pixel_art_guide`.
+`analyze_structure`, `extract_lineart`, `recolor_lineart`, `analyze_style`, `cleanup_sprite`, `draw_clean_line`, `draw_smooth_curve`, `outline_sprite`, `antialias_lines`, `dither_fill`, `gradient_map`, `reduce_colors`, `create_canvas`, `add_layer`, `set_layer_opacity`, `set_layer_visibility`, `generate_color_ramp`, `analyze_palette`, `set_palette`, `draw_path`, `draw_line`, `draw_pixels`, `fill_area`, `outline_cel`, `suggest_outline_color`, `shade_color`, `replace_color`, `quantize_to_palette`, `lint_pixel_art`, `readability_preview`, `export_frame`, `copy_frame`, `move_region`, `set_frame_duration`, `set_tag`, `audit_animation`, `compare_frames`, `render_onion_skin`, `animation_workflow_guide`, `pixel_art_guide`.

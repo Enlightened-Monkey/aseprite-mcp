@@ -230,8 +230,8 @@ def check_lines(img: np.ndarray, projection: str, line_colors=None) -> list[dict
     want = 2 if projection == "iso" else 1
     keys = L._keys(img)
     bad = []
-    for key, _ in L._resolve_line_colors(img, line_colors):
-        for chain in L._thin_chains(keys == key):
+    for key, mask, _ in L.line_masks(img, line_colors):
+        for chain in L._thin_chains(mask):
             runs = L.chain_runs(chain)
             # Split into straight stretches: same axis family and the same
             # diagonal direction between runs. Runs at the ends of a stretch

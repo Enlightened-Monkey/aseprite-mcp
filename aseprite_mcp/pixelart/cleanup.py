@@ -295,7 +295,18 @@ def despeckle(img: np.ndarray, max_delta: float = 15.0) -> tuple[np.ndarray, lis
     return out, changed, kept
 
 
-def fix_l_corners(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list]:
+def _as_masks(keys: np.ndarray, line_keys: list) -> list[tuple[int, np.ndarray]]:
+    """Accept colour keys (whole colour is line) or (key, mask) pairs."""
+    out = []
+    for item in line_keys:
+        if isinstance(item, tuple):
+            out.append((int(item[0]), item[1]))
+        else:
+            out.append((int(item), keys == item))
+    return out
+
+
+def fix_l_corners(img: np.ndarray, line_keys: list) -> tuple[np.ndarray, list]:
     """Pixel-perfect pass: remove doubled corner pixels of line colours.
 
     The freed pixel takes the most common non-line colour among its four
@@ -304,10 +315,13 @@ def fix_l_corners(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, li
     out = img.copy()
     keys = L._keys(img)
     h, w = keys.shape
-    line = np.isin(keys, line_keys)
+    masks = _as_masks(keys, line_keys)
+    line = np.zeros(keys.shape, dtype=bool)
+    for _, m in masks:
+        line |= m
     changed = []
-    for k in line_keys:
-        for x, y in L.find_l_corners(keys == k):
+    for k, m in masks:
+        for x, y in L.find_l_corners(m):
             cands = []
             for dx, dy in _N4:
                 nx, ny = x + dx, y + dy
@@ -428,7 +442,7 @@ def _window_order(runs: list[dict], bad: list[int]) -> list[tuple[int, int, list
     return out
 
 
-def fix_jaggies(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list]:
+def fix_jaggies(img: np.ndarray, line_keys: list) -> tuple[np.ndarray, list]:
     """Even out the staircase rhythm of line colours without moving end points.
 
     Uses the linter's run analysis; each flagged window of runs is re-laid in
@@ -439,8 +453,8 @@ def fix_jaggies(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list
     out = img.copy()
     keys = L._keys(img)
     changed = []
-    for key in line_keys:
-        for chain in L._thin_chains(keys == key):
+    for key, m in _as_masks(keys, line_keys):
+        for chain in L._thin_chains(m):
             runs = L.chain_runs(chain)
             for lo, hi, new in _window_order(runs, L.jaggy_runs(runs)):
                 diags = {(runs[k + 1]["pixels"][0][0] - runs[k]["pixels"][-1][0],

@@ -22,3 +22,4 @@ from . import pixelart
 from . import generators
 from . import anim_craft
 from . import projection_tools
+from . import structure_tools

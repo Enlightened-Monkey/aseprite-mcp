@@ -49,4 +49,4 @@
 Dithered areas are never touched by the pixel-level fixes. It recognises the style first so deliberate traits stay, then lists the remaining issues. Pillow shading, remaining jaggies on curves and readability problems need an artist's judgement: fix them by hand, guided by `lint_pixel_art` and `readability_preview`.
 
 ## Tools in this MCP
-`analyze_style`, `cleanup_sprite`, `lint_pixel_art` (respect_style), `analyze_palette`, `readability_preview`, `suggest_outline_color`, `generate_color_ramp`, `pixel_art_guide`.
+`analyze_structure` (line art and pixel roles), `analyze_style`, `cleanup_sprite`, `lint_pixel_art` (respect_style), `analyze_palette`, `readability_preview`, `suggest_outline_color`, `generate_color_ramp`, `pixel_art_guide`.

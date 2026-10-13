@@ -137,6 +137,29 @@ def _resolve_line_colors(img, colors):
     return [(int(k), True) for k in np.unique(_keys(img)) if k != -1 and _rgb(int(k)) in wanted]
 
 
+def line_masks(img, colors=None) -> list[tuple[int, np.ndarray, bool]]:
+    """(colour key, mask, certain) for every line colour.
+
+    With explicit colours, the mask is every pixel of that colour. Otherwise
+    the line art is detected by shape (see structure.analyze) and each mask
+    holds only the detected line pixels of one colour, so dark shading in
+    the same colour is left out. Masks that are mostly silhouette outline
+    are "certain"; inner line art findings are reported at info level.
+    """
+    keys = _keys(img)
+    if colors is not None:
+        return [(k, keys == k, True) for k, _ in _resolve_line_colors(img, colors)]
+    from .structure import ROLES, analyze as _structure
+    res = _structure(img)
+    out = []
+    outline = res["roles"] == ROLES.index("outline")
+    for k in np.unique(keys[res["lines"]]):
+        k = int(k)
+        mask = res["lines"] & (keys == k)
+        out.append((k, mask, bool((mask & outline).sum() * 2 >= mask.sum())))
+    return out
+
+
 def _split_by_certainty(check, found, warn_msg):
     sure = [p for p, c in found if c]
     unsure = [p for p, c in found if not c]
@@ -145,7 +168,7 @@ def _split_by_certainty(check, found, warn_msg):
         issues.append(_issue(check, "warning", warn_msg(len(sure)), sure))
     if unsure:
         issues.append(_issue(check, "info", warn_msg(len(unsure)) +
-                             " (On a dark inner line colour; ignore if it is shading, not a line.)", unsure))
+                             " (On inner line art; ignore if the line is drawn that way on purpose.)", unsure))
     return issues
 
 
@@ -207,8 +230,8 @@ def find_l_corners(mask: np.ndarray) -> list[tuple[int, int]]:
 def check_l_corners(img: np.ndarray, colors: list[str] | None = None) -> list[dict]:
     keys = _keys(img)
     found = []
-    for key, certain in _resolve_line_colors(img, colors):
-        found += [(p, certain) for p in find_l_corners(keys == key)]
+    for key, mask, certain in line_masks(img, colors):
+        found += [(p, certain) for p in find_l_corners(mask)]
     return _split_by_certainty("l_corners", found, lambda n:
         f"{n} doubled corner pixel(s) thicken 1-px lines into L-shapes; remove them so the "
         "line steps diagonally (pixel-perfect).")
@@ -356,8 +379,8 @@ def jaggy_runs(runs: list[dict]) -> list[int]:
 def check_jaggies(img: np.ndarray, colors: list[str] | None = None) -> list[dict]:
     keys = _keys(img)
     found = []
-    for key, certain in _resolve_line_colors(img, colors):
-        for chain in _thin_chains(keys == key):
+    for key, mask, certain in line_masks(img, colors):
+        for chain in _thin_chains(mask):
             runs = chain_runs(chain)
             for i in jaggy_runs(runs):
                 found += [(p, certain) for p in runs[i]["pixels"]]

@@ -84,5 +84,11 @@ bump (bad)        monotone (good)
 ## Draw it right the first time
 Describe straight edges with `draw_clean_line` (use `mode="snap"` for man-made objects so every step is identical) and curves with `draw_smooth_curve` control points instead of placing pixels by hand. Outline a finished shape with `outline_sprite` in the chosen style.
 
+## Finding and editing existing line art
+`analyze_structure` finds the line art in any sprite by shape: 1-2 px strips darker than both sides, forming strokes. It separates the outline (on the silhouette) from inner lines and reports how much of the silhouette the outline covers, the line width, the line colours, and the parts the lines separate. Dark shading bands are not counted as lines.
+- `extract_lineart` puts the line art on its own layer and fills its place with the neighbouring colours (flats and shading underneath).
+- `recolor_lineart` turns black lines into colored line art (the darkest shade of each part), into a tinted near-black, or into one chosen colour. It can work on the outline only or on the inner lines only.
+- `lint_pixel_art` and `cleanup_sprite` apply the line rules (L-corners, staircase rhythm) to the detected line art only.
+
 ## Tools in this MCP
-`draw_clean_line` (exact or snapped to a clean slope), `draw_smooth_curve` (Bezier control points to a pixel-perfect curve with gradual steps), `outline_sprite` (black, colored, shaded, selective), `draw_line`, `draw_path`, `draw_polygon`, `draw_circle`, `draw_ellipse_at`, `draw_pixels`, `erase_region`, `move_region`, `outline_cel`, `outline_native`, `suggest_outline_color`, `rotate_layer`, `flip_layer`, `get_pixels_rect`, `lint_pixel_art` (jaggy runs, L-corners, doubles), `readability_preview`.
+`analyze_structure`, `extract_lineart`, `recolor_lineart`, `draw_clean_line` (exact or snapped to a clean slope), `draw_smooth_curve` (Bezier control points to a pixel-perfect curve with gradual steps), `outline_sprite` (black, colored, shaded, selective), `draw_line`, `draw_path`, `draw_polygon`, `draw_circle`, `draw_ellipse_at`, `draw_pixels`, `erase_region`, `move_region`, `outline_cel`, `outline_native`, `suggest_outline_color`, `rotate_layer`, `flip_layer`, `get_pixels_rect`, `lint_pixel_art` (jaggy runs, L-corners, doubles), `readability_preview`.

@@ -310,6 +310,9 @@ Pixel-art technique knowledge and checks. Algorithms run in Python on the frame'
 | `draw_oblique_box` / `draw_topdown_block` | Oblique boxes (true-shape front) and 3/4-view blocks with a consistent camera ratio |
 | `draw_projection_grid` | Guide grid layer for side, top-down, top, oblique, iso or dimetric views |
 | `check_projection_lines` | Flags receding edges that break the projection's rhythm |
+| `analyze_structure` | Detects line art by shape (outline vs inner lines, width, coverage, gaps, line colours) and the role of every pixel (AA, base/shadow/highlight per part, dither, detail); role-map image. Linter and clean-up use it for line rules |
+| `extract_lineart` | Moves detected line art to its own layer and fills its place with neighbouring colours |
+| `recolor_lineart` | Coloured line art (darkest shade of each part), tinted near-black or one colour; outline only, inner only or all |
 | `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, style, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
 
 ### Scripting
