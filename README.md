@@ -287,6 +287,13 @@ Pixel-art technique knowledge and checks. Algorithms run in Python on the frame'
 | `readability_preview` | One contact sheet: 1x, 2x, zoomed, blurred, silhouette, value-only and on light/mid/dark backgrounds |
 | `analyze_style` | Recognises a sprite's style (outline type, shading, light direction, AA, dithering, palette, hue shift, size; label such as 8-bit / 16-bit / hi-bit / not clean pixel art) and lists the rules that govern each trait. Accepts .aseprite or plain images |
 | `cleanup_sprite` | Automatic clean-up of a rough, resized or noisy sprite: soft alpha, pixel-grid recovery (also non-integer upscales, blur, JPEG), colour merging, floating pixels, specks, outline gaps, pixel-perfect lines, even staircases, band breaking, outer AA. Style-aware, leaves dither alone; writes a new layer or file and reports what still needs a manual pass |
+| `draw_clean_line` | 1-px line with a clean staircase: `exact` (odd steps pushed to the ends or alternated evenly) or `snap` to 1:1 / 2:1 / 3:1... so every step is identical |
+| `draw_smooth_curve` | Bezier control points → pixel-perfect curve whose step lengths change gradually |
+| `outline_sprite` | Outline a layer's shape: black (auto tinted near-black), colored, shaded or selective (sel-out) by light direction; outside or inside; optional separate layer |
+| `antialias_lines` | Corner anti-aliasing for a line colour: about half a step, 1-2 shades, never onto transparency, palette-snapped |
+| `dither_fill` | Ramp gradient with ordered dither (clean 4x4 density ladder), canvas-aligned, optional shape or colour mask |
+| `gradient_map` | Recolour a greyscale value drawing with a ramp (optional checker steps), across frames |
+| `reduce_colors` | Reduce to N colours with one shared mapping across layers and frames (no animation flicker) |
 | `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, style, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
 
 ### Scripting

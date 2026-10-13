@@ -387,44 +387,43 @@ def _set(out: np.ndarray, keys: np.ndarray, x: int, y: int, key: int) -> None:
     keys[y, x] = key
 
 
-def _window_lengths(runs: list[dict], bad: list[int]) -> list[tuple[int, int, list[int]]]:
-    """Group jaggy runs into windows and compute new, rhythm-fixing lengths.
+def _window_order(runs: list[dict], bad: list[int]) -> list[tuple[int, int, list[tuple]]]:
+    """Group jaggy runs into windows and re-order them into a clean rhythm.
 
-    Returns (first, last, new_lengths) per window. The sum of lengths is kept,
-    so the chain's end points do not move. Inside a trend (a curve), the
-    window is sorted to follow the trend; on a straight stretch, odd runs
+    Returns (first, last, new_runs) per window, new_runs being (axis, len)
+    pairs. Re-ordering keeps the same runs, so the chain's end points do not
+    move. Inside a trend (a curve, possibly through 45 degrees) runs are
+    sorted by steepness to follow the trend; on a straight stretch odd runs
     move to the end of the stretch.
     """
-    out = []
-    groups = []
+    out, groups = [], []
     for i in bad:
         if groups and i <= groups[-1][-1] + 1:
             groups[-1].append(i)
         else:
             groups.append([i])
     n = len(runs)
+    desc = lambda k: (runs[k]["axis"], runs[k]["len"])
     for g in groups:
         lo, hi = max(1, g[0] - 1), min(n - 2, g[-1] + 1)
         if any(runs[k]["break"] for k in range(lo + 1, hi + 1)):
             continue
         before = L._slope_value(runs[lo - 1]) if lo - 1 >= 0 else None
         after = L._slope_value(runs[hi + 1]) if hi + 1 < n else None
-        lens = [runs[k]["len"] for k in range(lo, hi + 1)]
+        cur = [desc(k) for k in range(lo, hi + 1)]
+        slope = lambda r: L._slope_value({"axis": r[0], "len": r[1]})
         if before is not None and after is not None and before != after:
-            new = sorted(lens, reverse=before > after)
-            if runs[lo]["axis"] == "v":  # slope value runs opposite to length for vertical runs
-                new = sorted(lens, reverse=before < after)
+            new = sorted(cur, key=slope, reverse=before > after)
         else:
-            # Straight stretch: extend over the plateau, push odd runs to its end.
-            common = Counter(lens).most_common(1)[0][0]
-            while lo - 1 >= 1 and runs[lo - 1]["len"] == common and not runs[lo]["break"]:
+            common = Counter(cur).most_common(1)[0][0]
+            while lo - 1 >= 1 and desc(lo - 1) == common and not runs[lo]["break"]:
                 lo -= 1
-            while hi + 1 <= n - 2 and runs[hi + 1]["len"] == common and not runs[hi + 1]["break"]:
+            while hi + 1 <= n - 2 and desc(hi + 1) == common and not runs[hi + 1]["break"]:
                 hi += 1
-            lens = [runs[k]["len"] for k in range(lo, hi + 1)]
-            odd = [v for v in lens if v != common]
-            new = [common] * (len(lens) - len(odd)) + sorted(odd, reverse=True)
-        if new != lens:
+            cur = [desc(k) for k in range(lo, hi + 1)]
+            odd = [r for r in cur if r != common]
+            new = [common] * (len(cur) - len(odd)) + sorted(odd, key=slope, reverse=True)
+        if [slope(r) for r in new] != [slope(r) for r in cur]:
             out.append((lo, hi, new))
     return out
 
@@ -432,10 +431,10 @@ def _window_lengths(runs: list[dict], bad: list[int]) -> list[tuple[int, int, li
 def fix_jaggies(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list]:
     """Even out the staircase rhythm of line colours without moving end points.
 
-    Uses the linter's run analysis; each flagged window of runs is re-laid
-    with the same total length (see _window_lengths). Pixels a line leaves
-    take the surrounding non-line colour; pixels it enters take the line
-    colour.
+    Uses the linter's run analysis; each flagged window of runs is re-laid in
+    a clean order (see _window_order), keeping every run's own direction.
+    Pixels a line leaves take the surrounding non-line colour; pixels it
+    enters take the line colour.
     """
     out = img.copy()
     keys = L._keys(img)
@@ -443,21 +442,18 @@ def fix_jaggies(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list
     for key in line_keys:
         for chain in L._thin_chains(keys == key):
             runs = L.chain_runs(chain)
-            for lo, hi, new in _window_lengths(runs, L.jaggy_runs(runs)):
-                axes = {runs[k]["axis"] for k in range(lo, hi + 1)} - {None}
-                if len(axes) != 1:
-                    continue
-                axis_run = next(runs[k] for k in range(lo, hi + 1) if runs[k]["len"] >= 2)
-                (x0, y0), (x1, y1) = axis_run["pixels"][:2]
-                step = (x1 - x0, y1 - y0)
+            for lo, hi, new in _window_order(runs, L.jaggy_runs(runs)):
                 diags = {(runs[k + 1]["pixels"][0][0] - runs[k]["pixels"][-1][0],
                           runs[k + 1]["pixels"][0][1] - runs[k]["pixels"][-1][1]) for k in range(lo, hi)}
                 if len(diags) != 1:
                     continue
                 diag = diags.pop()
+                if not (diag[0] and diag[1]):
+                    continue
                 old = [p for k in range(lo, hi + 1) for p in runs[k]["pixels"]]
                 pts, (x, y) = [], old[0]
-                for i, length in enumerate(new):
+                for i, (axis, length) in enumerate(new):
+                    step = (diag[0], 0) if axis == "h" else (0, diag[1])
                     for j in range(length):
                         pts.append((x, y))
                         if j < length - 1:
@@ -466,7 +462,6 @@ def fix_jaggies(img: np.ndarray, line_keys: list[int]) -> tuple[np.ndarray, list
                         x, y = x + diag[0], y + diag[1]
                 if pts[-1] != old[-1]:
                     continue
-                line = keys == key
                 for (px, py) in set(pts) - set(old):
                     if keys[py, px] != key:
                         _set(out, keys, px, py, key)

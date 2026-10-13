@@ -64,5 +64,8 @@ Above 50%, swap the colours and run the ladder backwards (10/16 = 6/16 inverted,
 4. Are there any 2×1 minority clumps or phase seams?
 5. Check at 1x. If the pattern is visible as a pattern, reduce it.
 
+## Automatic dithering
+`dither_fill` mixes only neighbouring ramp colours, keeps the pattern aligned to the canvas so separate fills tile seamlessly, and can be restricted to existing pixels (`mask="opaque"`) or one colour (`only_color`). `levels=2` gives hard bands for comparison.
+
 ## Tools in this MCP
-`apply_dither_gradient`, `apply_dither_pattern`, `generate_color_ramp`, `draw_pixels`, `lint_pixel_art` (dither on small sprites), `readability_preview` (blur view shows whether dither blends), `get_color_stats`.
+`dither_fill` (ramp dither with the clean density ladder, aligned to the canvas, optional shape mask), `apply_dither_gradient`, `apply_dither_pattern`, `generate_color_ramp`, `draw_pixels`, `lint_pixel_art` (dither on small sprites), `readability_preview` (blur view shows whether dither blends), `get_color_stats`.

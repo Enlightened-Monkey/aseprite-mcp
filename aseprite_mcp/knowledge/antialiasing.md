@@ -76,5 +76,8 @@ Fixes:
 **Pillow shading** is shading arranged as concentric rings that follow the outline: dark at the edge and light in the centre, ignoring the light source. It is banding all around the silhouette and looks flat and amateurish.
 Fix: choose a light direction. Put the shadow shape on the side away from the light and the highlight toward it. Let the shadow edge follow the **form** (where the surface turns away from the light), not the outline.
 
+## Automatic AA
+`antialias_lines` applies these rules to every step of a line colour: AA in the concave corners, about half the neighbouring step long, darker next to the corner with 2 shades, never on transparency, 45-degree parts left crisp, colours snapped to the palette. Check the result at 1x with `readability_preview` and run `lint_pixel_art` for banding.
+
 ## Tools in this MCP
-`draw_pixels`, `get_pixels_rect`, `get_composite_rect`, `shade_color`, `analyze_palette`, `lint_pixel_art` (banding, pillow shading, AA outside the outline), `readability_preview` (1x and blur views reveal banding), `export_frame`.
+`antialias_lines` (corner AA about half a step long, 1-2 shades, inside only), `draw_pixels`, `get_pixels_rect`, `get_composite_rect`, `shade_color`, `analyze_palette`, `lint_pixel_art` (banding, pillow shading, AA outside the outline), `readability_preview` (1x and blur views reveal banding), `export_frame`.

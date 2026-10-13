@@ -222,3 +222,42 @@ def hide_layers_except(filename: str, keep: str) -> list[str]:
     if not ok:
         raise ValueError(output.strip() or "Could not hide layers")
     return [line[len("HIDDEN:"):] for line in output.splitlines() if line.startswith("HIDDEN:")]
+
+
+def list_layers(filename: str) -> list[str]:
+    """Paths ("group/child") of every non-group layer, bottom to top."""
+    script = """
+    local spr = app.activeSprite
+    if not spr then print("ERROR:No active sprite") return end
+    local function walk(layers, prefix)
+        for _, l in ipairs(layers) do
+            local path = prefix .. l.name
+            if l.isGroup then walk(l.layers, path .. "/") else print("LAYER:" .. path) end
+        end
+    end
+    walk(spr.layers, "")
+    """
+    ok, output = AsepriteCommand.execute_lua_script_checked(script, filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not list layers")
+    return [line[len("LAYER:"):] for line in output.splitlines() if line.startswith("LAYER:")]
+
+
+def parse_frames(filename: str, frames: str) -> list[int]:
+    """"all", "3", "2-5" or "1,3,4" -> list of 1-based frame indices."""
+    total = frame_count(filename)
+    spec = (frames or "all").strip().lower()
+    if spec == "all":
+        return list(range(1, total + 1))
+    out = []
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part:
+            a, b = (int(v) for v in part.split("-", 1))
+            out += list(range(a, b + 1))
+        elif part:
+            out.append(int(part))
+    bad = [f for f in out if not 1 <= f <= total]
+    if bad:
+        raise ValueError(f"Frame(s) out of range 1-{total}: {bad}")
+    return out

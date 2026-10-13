@@ -81,5 +81,8 @@ bump (bad)        monotone (good)
 - Scale only by integers (2x, 3x, 4x) with nearest-neighbour. Never use 1.5x or 0.5x and call it finished.
 - Rotation by anything other than 90°, 180° or 270° breaks the grid. Rotate once, then clean every line by hand. Exception: free rotation required by gameplay (aiming arms, spinning props).
 
+## Draw it right the first time
+Describe straight edges with `draw_clean_line` (use `mode="snap"` for man-made objects so every step is identical) and curves with `draw_smooth_curve` control points instead of placing pixels by hand. Outline a finished shape with `outline_sprite` in the chosen style.
+
 ## Tools in this MCP
-`draw_line`, `draw_path`, `draw_polygon`, `draw_circle`, `draw_ellipse_at`, `draw_pixels`, `erase_region`, `move_region`, `outline_cel`, `outline_native`, `suggest_outline_color`, `rotate_layer`, `flip_layer`, `get_pixels_rect`, `lint_pixel_art` (jaggy runs, L-corners, doubles), `readability_preview`.
+`draw_clean_line` (exact or snapped to a clean slope), `draw_smooth_curve` (Bezier control points to a pixel-perfect curve with gradual steps), `outline_sprite` (black, colored, shaded, selective), `draw_line`, `draw_path`, `draw_polygon`, `draw_circle`, `draw_ellipse_at`, `draw_pixels`, `erase_region`, `move_region`, `outline_cel`, `outline_native`, `suggest_outline_color`, `rotate_layer`, `flip_layer`, `get_pixels_rect`, `lint_pixel_art` (jaggy runs, L-corners, doubles), `readability_preview`.

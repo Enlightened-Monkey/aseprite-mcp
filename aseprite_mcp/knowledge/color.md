@@ -89,5 +89,8 @@ Never merge the colours that separate the silhouette from the main fill.
 ## Animation
 Use one fixed palette across all frames. A colour that appears in only one frame flickers.
 
+## Value first, colour second
+Paint forms in 3-5 greys, check them with `readability_preview` (value view), then `gradient_map` the layer onto a hue-shifted ramp from `generate_color_ramp`. To cut a palette, use `reduce_colors`: it merges the rarest similar colours first and applies one mapping to every frame, so animations do not flicker.
+
 ## Tools in this MCP
-`generate_color_ramp`, `shade_color`, `suggest_outline_color`, `analyze_palette`, `get_palette`, `set_palette`, `extract_palette`, `get_color_stats`, `replace_color`, `adjust_hsl`, `adjust_hsl_native`, `quantize_to_palette`, `remap_colors_in_cel_range`, `list_palette_presets`, `apply_palette_preset`, `set_color_mode`, `lint_pixel_art` (colour count, near-duplicates, pure black), `readability_preview` (value view).
+`gradient_map` (value-first: greys to a ramp), `reduce_colors` (one shared mapping across layers and frames), `generate_color_ramp`, `shade_color`, `suggest_outline_color`, `analyze_palette`, `get_palette`, `set_palette`, `extract_palette`, `get_color_stats`, `replace_color`, `adjust_hsl`, `adjust_hsl_native`, `quantize_to_palette`, `remap_colors_in_cel_range`, `list_palette_presets`, `apply_palette_preset`, `set_color_mode`, `lint_pixel_art` (colour count, near-duplicates, pure black), `readability_preview` (value view).

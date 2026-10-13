@@ -19,3 +19,4 @@ from . import script
 from . import text
 from . import native_fx
 from . import pixelart
+from . import generators
