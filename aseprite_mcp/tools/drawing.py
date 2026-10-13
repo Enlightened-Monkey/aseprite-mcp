@@ -24,7 +24,7 @@ async def draw_pixels(filename: str, pixels: List[Dict[str, Any]]) -> str:
     if not os.path.exists(filename):
         return f"File {filename} not found"
 
-    script = """
+    script = NORMALIZE_CEL + """
     local spr = app.activeSprite
     if not spr then print("ERROR:No active sprite") return end
 
@@ -39,6 +39,8 @@ async def draw_pixels(filename: str, pixels: List[Dict[str, Any]]) -> str:
                 print("ERROR:No active cel and couldn't create one") return
             end
         end
+        -- Canvas-sized cel so pixels outside a trimmed cel are not dropped.
+        cel = normalize_cel(spr, cel.layer, cel.frame, false)
 
         local img = cel.image
         local cox = cel.position.x
@@ -96,6 +98,7 @@ async def draw_line(filename: str, x1: int, y1: int, x2: int, y2: int, color: st
     r, g, b, a = rgb
 
     script = f"""
+    {NORMALIZE_CEL}
     local spr = app.activeSprite
     if not spr then print("ERROR:No active sprite") return end
 
@@ -137,6 +140,8 @@ async def draw_line(filename: str, x1: int, y1: int, x2: int, y2: int, color: st
                 print("ERROR:No active cel and couldn't create one") return
             end
         end
+        -- Canvas-sized cel so pixels outside a trimmed cel are not dropped.
+        cel = normalize_cel(spr, cel.layer, cel.frame, false)
         local img = cel.image
         local cox = cel.position.x
         local coy = cel.position.y
@@ -361,17 +366,15 @@ async def draw_pixels_at(
     if idx < 1 or idx > #spr.frames then print("ERROR:Frame index out of range") return end
 
     {FIND_LAYER}
+    {NORMALIZE_CEL}
     local target = find_layer(spr, "{safe_layer_name}")
     if not target then print("ERROR:Layer not found") return end
 
     app.transaction(function()
         app.activeLayer = target
         app.activeFrame = spr.frames[idx]
-        local cel = target:cel(spr.frames[idx])
-        if not cel and {create_flag} then
-            local img = Image(spr.width, spr.height, spr.colorMode)
-            cel = spr:newCel(target, spr.frames[idx], img, Point(0, 0))
-        end
+        -- Canvas-sized cel so pixels outside a trimmed cel are not dropped.
+        local cel = normalize_cel(spr, target, spr.frames[idx], {create_flag})
         if not cel then return end
         local img = cel.image
         local cox = cel.position.x
@@ -473,17 +476,15 @@ async def draw_line_at(
     if idx < 1 or idx > #spr.frames then print("ERROR:Frame index out of range") return end
 
     {FIND_LAYER}
+    {NORMALIZE_CEL}
     local target = find_layer(spr, "{safe_layer_name}")
     if not target then print("ERROR:Layer not found") return end
 
     app.transaction(function()
         app.activeLayer = target
         app.activeFrame = spr.frames[idx]
-        local cel = target:cel(spr.frames[idx])
-        if not cel and {create_flag} then
-            local img = Image(spr.width, spr.height, spr.colorMode)
-            cel = spr:newCel(target, spr.frames[idx], img, Point(0, 0))
-        end
+        -- Canvas-sized cel so pixels outside a trimmed cel are not dropped.
+        local cel = normalize_cel(spr, target, spr.frames[idx], {create_flag})
         if not cel then return end
         local img = cel.image
         local cox = cel.position.x

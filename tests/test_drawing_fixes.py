@@ -53,3 +53,22 @@ def test_draw_rejects_bad_hex(sprite):
     res = run(drawing.draw_pixels_at(sprite, "bad", 1,
                                      [{"x": 0, "y": 0, "color": "#GG0000"}], True))
     assert res.startswith(("Invalid", "Failed"))
+
+
+
+def test_pixels_outside_trimmed_cel_are_kept(base_dir):
+    """Drawing outside an existing (trimmed) cel must grow it, not drop pixels."""
+    path = f"{base_dir}/trimmed_cel.aseprite"
+    ok(run(canvas.create_canvas(32, 32, path)))
+    ok(run(canvas.add_layer(path, "body")))
+    ok(run(drawing.draw_rectangle_at(path, "body", 1, 8, 8, 4, 4, "#D04648", True)))
+    ok(run(drawing.draw_pixels_at(path, "body", 1, [{"x": 1, "y": 1, "color": "#00FF00"}])))
+    ok(run(drawing.draw_line_at(path, "body", 1, 20, 30, 30, 30, "#0000FF")))
+    assert run(pixel_read.get_pixel_color(path, 1, 1, "body")).startswith("#00ff00")
+    assert run(pixel_read.get_pixel_color(path, 25, 30, "body")).startswith("#0000ff")
+    assert run(pixel_read.get_pixel_color(path, 8, 8, "body")).startswith("#d04648")
+    # Active-cel tools draw on whichever layer is active; check the composite.
+    ok(run(drawing.draw_pixels(path, [{"x": 31, "y": 0, "color": "#FFFF00"}])))
+    ok(run(drawing.draw_line(path, 0, 31, 3, 31, "#FF00FF")))
+    assert run(pixel_read.get_composite_pixel(path, 31, 0)).startswith("#ffff00")
+    assert run(pixel_read.get_composite_pixel(path, 2, 31)).startswith("#ff00ff")
