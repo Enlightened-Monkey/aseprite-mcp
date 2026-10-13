@@ -303,6 +303,13 @@ Pixel-art technique knowledge and checks. Algorithms run in Python on the frame'
 | `build_loop` | Re-arrange key frames into ping-pong, A-B-A-C or a custom loop (all layers, durations kept) |
 | `generate_smear` | Elongated or after-image smear in-between, in-palette |
 | `draw_slash_arc` | Multi-frame weapon trail: full crescent, fading body, tail |
+| `draw_iso_floor` | Isometric floor of lineless 2:1 diamonds (2-px tips) in a seamless checkerboard |
+| `draw_iso_box` | Iso / 45° dimetric box with three-tone faces from a base colour or explicit colours; exact receding edges |
+| `draw_projection_line` | Receding edge with the projection's exact step rhythm (iso 2:1, dimetric/oblique 1:1) |
+| `skew_to_projection` | Map a flat texture (bricks, door, window) onto an iso left/right wall or top face |
+| `draw_oblique_box` / `draw_topdown_block` | Oblique boxes (true-shape front) and 3/4-view blocks with a consistent camera ratio |
+| `draw_projection_grid` | Guide grid layer for side, top-down, top, oblique, iso or dimetric views |
+| `check_projection_lines` | Flags receding edges that break the projection's rhythm |
 | `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, style, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
 
 ### Scripting

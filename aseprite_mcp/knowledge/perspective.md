@@ -74,5 +74,14 @@
 - Block organic forms with a few ovals on a sketch layer, trace their union as the silhouette, then add masses, details and light.
 - Put objects side by side to compare top/front ratio, slope and light direction. If an object seen from one view can be misread, change its silhouette.
 
+## Building with the projection tools
+1. Pick one projection for the whole scene. Draw its guide with `draw_projection_grid` on a separate layer and hide it before export.
+2. Isometric ground: use `draw_iso_floor`. Tile (c, r) sits at origin + ((c - r)·W/2, (c + r)·W/4). Draw back to front, ordered by c + r.
+3. Masses (crates, walls, buildings): use `draw_iso_box`, anchored at the 2-px bottom tip. Give it one base colour, or three face colours with the top lightest and the side toward the light lighter.
+4. Surface detail: draw it flat (bricks, doors, windows, planks), then map it onto a wall or roof with `skew_to_projection`. Clean up afterwards.
+5. Single receding edges: use `draw_projection_line` (exact 2:1 for iso, 1:1 for 45° projections).
+6. Other views: `draw_oblique_box` (true-shape front, 45° depth) and `draw_topdown_block`. Keep the same top:front ratio in the whole scene.
+7. Verify with `check_projection_lines`: every receding step must keep the projection's rhythm.
+
 ## Tools in this MCP
-`draw_line`, `draw_line_at`, `draw_polygon`, `draw_path`, `draw_ellipse_at`, `fill_area`, `create_tilemap_layer`, `set_tiles`, `draw_on_tile`, `get_tilemap_info`, `add_layer` (grid and sketch layers), `set_layer_opacity`, `offset_cel_positions` (parallax), `lint_pixel_art` (jaggy runs), `readability_preview`.
+`draw_iso_floor`, `draw_iso_box`, `draw_projection_line`, `skew_to_projection`, `draw_oblique_box`, `draw_topdown_block`, `draw_projection_grid`, `check_projection_lines`, `draw_line`, `draw_line_at`, `draw_polygon`, `draw_path`, `draw_ellipse_at`, `fill_area`, `create_tilemap_layer`, `set_tiles`, `draw_on_tile`, `get_tilemap_info`, `add_layer` (grid and sketch layers), `set_layer_opacity`, `offset_cel_positions` (parallax), `lint_pixel_art` (jaggy runs), `readability_preview`.

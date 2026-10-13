@@ -21,3 +21,4 @@ from . import native_fx
 from . import pixelart
 from . import generators
 from . import anim_craft
+from . import projection_tools
