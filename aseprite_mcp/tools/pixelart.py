@@ -55,6 +55,7 @@ async def lint_pixel_art(
     line_colors: str = "",
     overlay_path: str = "",
     max_pixels: int = 40,
+    respect_style: bool = False,
 ):
     """Check a frame for common pixel-art mistakes and show where they are.
 
@@ -82,6 +83,10 @@ async def lint_pixel_art(
         line_colors: Comma-separated hex colours to treat as lines (default: auto)
         overlay_path: Optional path to also save the marked-up PNG
         max_pixels: Max coordinates listed per issue (default 40)
+        respect_style: Recognise the style first (analyze_style) and skip
+            findings that are part of it: pure black in a black-outline
+            style, dither on a large deliberately dithered sprite, light
+            edge pixels of a selective outline
 
     Returns:
         JSON report (pixel coordinates are sprite x,y) and an overlay image
@@ -91,7 +96,17 @@ async def lint_pixel_art(
         img = pixels.read_image(filename, frame_index, layer_name)
         scale = L.detect_scale(img)
         work = L.downscale(img, scale)
-        issues = L.lint(work, _split(checks), _split(line_colors))
+        names = _split(checks)
+        skipped = {}
+        if respect_style:
+            from ..pixelart.style import analyze_style as _analyze
+            style = _analyze(work)
+            skipped = style["lint"]["skipped"]
+            if names is None:
+                names = style["lint"]["checks"]
+        issues = L.lint(work, names, _split(line_colors))
+        if "colors.pure_black" in skipped:
+            issues = [i for i in issues if i["check"] != "pure_black"]
     except ValueError as e:
         return f"Failed to lint: {e}"
 
@@ -106,6 +121,8 @@ async def lint_pixel_art(
     }
     if scale > 1:
         report["note"] = f"Image is pixel art upscaled {scale}x; analysed at 1x (coordinates are 1x)."
+    if skipped:
+        report["skipped_for_style"] = skipped
     if not issues:
         report["summary"] = "No issues found."
         return json.dumps(report)
@@ -267,8 +284,8 @@ async def pixel_art_guide(topic: str = "core") -> str:
     """Pixel-art technique guide: rules of thumb with concrete numbers.
 
     Read "core" first, then the topic you are about to work on. Topics:
-    core, workflow, lineart, antialiasing, color, readability, dithering,
-    perspective, cleanup, subpixel, animation.
+    core, workflow, style, lineart, antialiasing, color, readability,
+    dithering, perspective, cleanup, subpixel, animation.
 
     Args:
         topic: Guide topic (default "core")
@@ -280,3 +297,202 @@ async def pixel_art_guide(topic: str = "core") -> str:
 def guide_resource(topic: str) -> str:
     """Pixel-art technique guide for one topic (see pixel_art_guide)."""
     return read_guide(topic)
+
+
+# ------------------------------------------------- style and clean-up
+
+_ASE_EXT = (".aseprite", ".ase")
+
+
+def _load_any(filename: str, frame_index: int, layer_name: str, remove_background: bool):
+    """Pixels from an Aseprite file or a plain image (png/gif/jpg/bmp/webp).
+
+    For plain images without transparency whose four corners share one
+    colour, that colour is treated as the background and made transparent
+    (when remove_background is true).
+    """
+    if filename.lower().endswith(_ASE_EXT):
+        return pixels.read_image(filename, frame_index, layer_name), None
+    if not os.path.exists(filename):
+        raise ValueError(f"File {filename} not found")
+    from PIL import Image as PILImage
+    import numpy as np
+    with PILImage.open(filename) as im:
+        try:
+            im.seek(max(0, frame_index - 1))
+        except EOFError:
+            raise ValueError("Frame index out of range") from None
+        arr = np.array(im.convert("RGBA"))
+    note = None
+    if remove_background and (arr[..., 3] == 255).all():
+        corners = {tuple(arr[0, 0]), tuple(arr[0, -1]), tuple(arr[-1, 0]), tuple(arr[-1, -1])}
+        if len(corners) == 1:
+            bg = arr[0, 0].copy()
+            arr[(arr == bg).all(axis=-1)] = 0
+            note = f"Background colour {C.rgb_to_hex(bg)} (all four corners) made transparent."
+    return arr, note
+
+
+@mcp.tool()
+async def analyze_style(
+    filename: str,
+    frame_index: int = 1,
+    layer_name: str = "",
+    remove_background: bool = True,
+) -> str:
+    """Recognise a sprite's pixel-art style and file it under the matching rules.
+
+    Measures: outline style (none, black_contour, black_inline, dark_contour,
+    colored, shaded, selective), shading (flat, cel, soft, pillow, dithered),
+    light direction, anti-aliasing / soft-edge level, dithering, palette size
+    and tones per ramp, hue-shift direction, sprite size class, and whether
+    the image is clean pixel art at all (blurred, resized or filtered images
+    are flagged). Gives a style label (1-bit, minimal 4-shade, 8-bit retro,
+    16-bit, modern hi-bit, not clean pixel art).
+
+    Use it before editing or extending someone else's sprite: the "rules"
+    list says which guide rules govern each trait so new pixels match the
+    existing style, and "lint" gives style-aware settings for lint_pixel_art.
+
+    Args:
+        filename: .aseprite file or an image (png, gif, jpg, bmp, webp)
+        frame_index: Frame to analyse, starting at 1
+        layer_name: Analyse only this layer (Aseprite files only)
+        remove_background: For opaque images, treat a colour shared by all
+            four corners as background (default true)
+    """
+    from ..pixelart.style import analyze_style as _analyze
+
+    try:
+        img, note = _load_any(filename, frame_index, layer_name, remove_background)
+    except ValueError as e:
+        return f"Failed to analyse style: {e}"
+    profile = _analyze(img)
+    if note:
+        profile["note"] = note
+    return json.dumps(profile)
+
+
+@mcp.tool()
+async def cleanup_sprite(
+    filename: str,
+    frame_index: int = 1,
+    layer_name: str = "",
+    output: str = "",
+    steps: str = "",
+    max_colors: int = 0,
+    keep_details: bool = True,
+    line_colors: str = "",
+    in_place: bool = False,
+    remove_background: bool = True,
+):
+    """Finish a rough, resized or noisy sprite: the automatic clean-up pass.
+
+    Works on an .aseprite file or a plain image a user supplied. It first
+    recognises the style (see analyze_style) so deliberate traits are kept,
+    then runs these steps (all by default, or a comma-separated subset):
+    - alpha: semi-transparent edge pixels become fully opaque or clear
+    - grid: art that was upscaled - also by non-integer factors, blurred or
+      saved as JPEG - is resampled back to its true pixel grid
+    - palette: near-identical colours merge; far too many colours (blur,
+      JPEG) are reduced to a size-appropriate budget
+    - orphans: pixels floating alone in transparency are deleted
+    - speckles: single noise pixels take the surrounding colour (distinct
+      single pixels such as pupils or shines are kept and listed for review)
+    - outline: gaps in a single dark contour are closed
+    - corners: pixel-perfect pass on line colours (L-corner doubles removed)
+    - outer_aa: light pixels outside the outline are removed (skipped for a
+      selective outline)
+    Afterwards it lints the result and lists what still needs a human eye
+    (jaggies, banding, pillow shading...) - fix those by hand.
+
+    Output: for an Aseprite file of unchanged size, the result goes to a new
+    layer "<layer> clean" (or "clean") and the other layers are hidden; with
+    in_place=true and a layer_name, that layer is overwritten. When the size
+    changes (grid recovered) or the input is an image, a new .aseprite (or
+    .png when output ends with .png) is written to `output`, default
+    "<name>_clean.aseprite" next to the input.
+
+    Args:
+        filename: .aseprite file or image (png, gif, jpg, bmp, webp)
+        frame_index: Frame to clean, starting at 1
+        layer_name: Clean only this layer (default: the visible composite)
+        output: Output path for a new file (see above)
+        steps: Comma-separated subset of: alpha, grid, palette, orphans,
+            speckles, outline, corners, outer_aa (default: all)
+        max_colors: 0 = automatic, -1 = keep colour count (still merges
+            near-duplicates), N = reduce to N colours
+        keep_details: Keep high-contrast single pixels (default true)
+        line_colors: Comma-separated hex colours that are lines (default: auto)
+        in_place: Overwrite layer_name instead of adding a layer
+        remove_background: For opaque images, make a colour shared by all
+            four corners transparent (default true)
+
+    Returns:
+        JSON log of every change, the style profile label, remaining lint
+        issues, and a before/after image (changed pixels boxed when the size
+        is unchanged).
+    """
+    import numpy as np
+
+    from ..pixelart import cleanup as CL
+    from ..pixelart.style import analyze_style as _analyze
+
+    try:
+        img, note = _load_any(filename, frame_index, layer_name, remove_background)
+        style = _analyze(img)
+        clean, log = CL.cleanup(
+            img, _split(steps) or CL.STEPS, max_colors, keep_details, _split(line_colors), style)
+    except ValueError as e:
+        return f"Failed to clean up: {e}"
+
+    is_ase = filename.lower().endswith(_ASE_EXT)
+    same_size = clean.shape == img.shape
+    base = os.path.splitext(filename)[0]
+    try:
+        if is_ase and same_size and not output:
+            if in_place:
+                if not layer_name:
+                    return "in_place needs layer_name (the layer to overwrite)"
+                target = layer_name
+            else:
+                target = f"{layer_name} clean" if layer_name else "clean"
+                pixels.add_layer(filename, target)
+            pixels.write_image(filename, target, frame_index, clean)
+            hidden = [] if in_place else pixels.hide_layers_except(filename, target)
+            where = {"file": filename, "layer": target, "hidden_layers": hidden}
+        else:
+            out = output or f"{base}_clean.aseprite"
+            err = reject_traversal(out)
+            if err:
+                return err
+            if out.lower().endswith(".png"):
+                pixels.save_png(clean, out)
+            else:
+                pixels.create_sprite(out, clean, "clean")
+            where = {"file": out}
+    except ValueError as e:
+        return f"Failed to save clean-up: {e}"
+
+    changed = None
+    if same_size:
+        diff = (clean != img).any(axis=-1)
+        changed = [(int(x), int(y)) for y, x in zip(*np.nonzero(diff))]
+    remaining = L.lint(clean, style["lint"]["checks"], _split(line_colors))
+    report = {
+        "output": where,
+        "style": {"label": style["label"], "outline": style["outline"]["style"],
+                  "shading": style["shading"], "light_from": style["lighting"]["from"]},
+        "size": {"before": [int(img.shape[1]), int(img.shape[0])],
+                 "after": [int(clean.shape[1]), int(clean.shape[0])]},
+        "pixels_changed": len(changed) if changed is not None else "size changed",
+        "steps": log["steps"],
+        "remaining_issues": [{"check": i["check"], "severity": i["severity"], "message": i["message"],
+                              "count": len(i["pixels"]), "pixels": i["pixels"][:20]} for i in remaining],
+    }
+    if note:
+        report["note"] = note
+    if remaining:
+        report["next"] = ("Automatic fixes are done. Review remaining_issues with lint_pixel_art on the "
+                          "output and fix them by hand, then check readability_preview.")
+    return [json.dumps(report), _png(render.before_after(img, clean, changed))]

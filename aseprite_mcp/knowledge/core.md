@@ -13,5 +13,6 @@
 11. Never dither small or animated sprites. Dither only between adjacent ramp colours.
 12. Animation: start from distinct keys. Use arcs, easing, overlap and ≥3 frames per loop. Frames usually last 80-120 ms.
 13. Review at 1x, blurred, as a silhouette and in greyscale. Lint, fix, repeat.
+14. Editing someone else's sprite: run `analyze_style` first and match its outline, palette, light and edges. Rough or resized input: `cleanup_sprite` first.
 
-For details, call `pixel_art_guide(topic)`. Topics: workflow, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation.
+For details, call `pixel_art_guide(topic)`. Topics: workflow, style, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation.

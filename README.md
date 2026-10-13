@@ -283,9 +283,11 @@ Pixel-art technique knowledge and checks. Algorithms run in Python on the frame'
 
 | Tool | Description |
 |------|-------------|
-| `lint_pixel_art` | Finds stray pixels, L-corner doubles, jaggy line steps, banding, pillow shading, too many / near-duplicate colours, pure black, dither on small sprites and AA outside the outline. Returns a JSON report plus an image with every flagged pixel boxed |
+| `lint_pixel_art` | (`respect_style=true` skips traits that belong to the recognised style.) Finds stray pixels, L-corner doubles, jaggy line steps, banding, pillow shading, too many / near-duplicate colours, pure black, dither on small sprites and AA outside the outline. Returns a JSON report plus an image with every flagged pixel boxed |
 | `readability_preview` | One contact sheet: 1x, 2x, zoomed, blurred, silhouette, value-only and on light/mid/dark backgrounds |
-| `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
+| `analyze_style` | Recognises a sprite's style (outline type, shading, light direction, AA, dithering, palette, hue shift, size; label such as 8-bit / 16-bit / hi-bit / not clean pixel art) and lists the rules that govern each trait. Accepts .aseprite or plain images |
+| `cleanup_sprite` | Automatic clean-up of a rough, resized or noisy sprite: soft alpha, pixel-grid recovery (also non-integer upscales, blur, JPEG), colour merging, floating pixels, specks, outline gaps, pixel-perfect lines, outer AA. Style-aware; writes a new layer or file and reports what still needs a manual pass |
+| `pixel_art_guide` | Rules of thumb with numbers per topic: workflow, style, lineart, antialiasing, color, readability, dithering, perspective, cleanup, subpixel, animation (also served as `pixelart://guide/{topic}` resources) |
 
 ### Scripting
 

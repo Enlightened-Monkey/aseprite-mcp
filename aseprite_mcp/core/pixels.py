@@ -160,3 +160,65 @@ def save_png(pixels: np.ndarray, path: str, scale: int = 1) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     im.save(path)
     return path
+
+
+def create_sprite(path: str, pixels: np.ndarray, layer: str = "Layer 1") -> None:
+    """Create a new RGB .aseprite file holding one layer with these pixels."""
+    arr = np.asarray(pixels, dtype=np.uint8)
+    if arr.ndim != 3 or arr.shape[2] != 4:
+        raise ValueError("pixels must have shape (height, width, 4)")
+    src = _tmp_png()
+    Image.fromarray(arr, "RGBA").save(src)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    script = f"""
+    local spr = Sprite{{ fromFile = "{_lua_path(src)}" }}
+    if not spr then print("ERROR:Could not load image") return end
+    if spr.colorMode ~= ColorMode.RGB then app.command.ChangePixelFormat{{ format = "rgb" }} end
+    spr.layers[1].name = "{lua_escape(layer)}"
+    spr:saveAs("{_lua_path(path)}")
+    print("OK")
+    """
+    try:
+        ok, output = AsepriteCommand.execute_lua_script_checked(script)
+        if not ok or not os.path.exists(path):
+            raise ValueError(output.strip() or "Aseprite failed to create the sprite")
+    finally:
+        if os.path.exists(src):
+            os.remove(src)
+
+
+def add_layer(filename: str, layer: str) -> None:
+    """Add an empty top-level layer (no-op when it already exists)."""
+    script = f"""
+    local spr = app.activeSprite
+    if not spr then print("ERROR:No active sprite") return end
+    for _, l in ipairs(spr.layers) do
+        if l.name == "{lua_escape(layer)}" then print("OK") return end
+    end
+    local l = spr:newLayer()
+    l.name = "{lua_escape(layer)}"
+    spr:saveAs(spr.filename)
+    print("OK")
+    """
+    ok, output = AsepriteCommand.execute_lua_script_checked(script, filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not add layer")
+
+
+def hide_layers_except(filename: str, keep: str) -> list[str]:
+    """Hide every top-level layer except `keep`; returns the names hidden."""
+    script = f"""
+    local spr = app.activeSprite
+    if not spr then print("ERROR:No active sprite") return end
+    for _, l in ipairs(spr.layers) do
+        if l.name ~= "{lua_escape(keep)}" and l.isVisible then
+            l.isVisible = false
+            print("HIDDEN:" .. l.name)
+        end
+    end
+    spr:saveAs(spr.filename)
+    """
+    ok, output = AsepriteCommand.execute_lua_script_checked(script, filename)
+    if not ok:
+        raise ValueError(output.strip() or "Could not hide layers")
+    return [line[len("HIDDEN:"):] for line in output.splitlines() if line.startswith("HIDDEN:")]

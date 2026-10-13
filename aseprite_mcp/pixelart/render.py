@@ -95,3 +95,26 @@ def readability_sheet(img: np.ndarray, backgrounds=("#E8E8E8", "#808080", "#1818
             x += cell_w
         y += rh
     return sheet
+
+
+def before_after(before: np.ndarray, after: np.ndarray, changed: list | None = None) -> Image.Image:
+    """Side-by-side comparison at a common display size, changed pixels boxed."""
+    target = 384
+    sb = max(1, target // max(before.shape[:2]))
+    sa = max(1, target // max(after.shape[:2]))
+    left = _up(_on_checker(before, 4 if sb < 4 else 1), sb)
+    right = _up(_on_checker(after, 1), sa)
+    if changed:
+        draw = ImageDraw.Draw(right)
+        for x, y in changed:
+            draw.rectangle([x * sa, y * sa, x * sa + sa - 1, y * sa + sa - 1], outline=(255, 0, 255),
+                           width=max(1, sa // 6))
+    pad, label_h = 8, 14
+    sheet = Image.new("RGB", (left.width + right.width + 3 * pad, max(left.height, right.height) + label_h + 2 * pad),
+                      (255, 255, 255))
+    d = ImageDraw.Draw(sheet)
+    d.text((pad, pad), f"before {before.shape[1]}x{before.shape[0]}", fill=(0, 0, 0))
+    d.text((2 * pad + left.width, pad), f"after {after.shape[1]}x{after.shape[0]}", fill=(0, 0, 0))
+    sheet.paste(left, (pad, pad + label_h))
+    sheet.paste(right, (2 * pad + left.width, pad + label_h))
+    return sheet
