@@ -132,13 +132,15 @@ def run(out_dir):
                 s = 10
                 dpts = [((x, y), None) for y, x in zip(*np.nonzero(mask))]
                 lint_boxes = [(p, (255, 60, 60)) for p in warn] + [(p, (255, 170, 0)) for p in anyf if p not in warn]
-                res_ok = same(fixed, clean)
-                res_boxes = [((x, y), (0, 170, 0)) for y, x in zip(*np.nonzero(mask & res_ok))] + \
-                            [((x, y), (230, 0, 0)) for y, x in zip(*np.nonzero(mask & ~res_ok))] + \
-                            [((x, y), (255, 0, 200)) for y, x in zip(*np.nonzero(ok_before & ~res_ok & ~mask))]
+                def boxes(res):
+                    ok = same(res, clean)
+                    return [((x, y), (0, 170, 0)) for y, x in zip(*np.nonzero(mask & ok))] + \
+                           [((x, y), (230, 0, 0)) for y, x in zip(*np.nonzero(mask & ~ok))] + \
+                           [((x, y), (255, 0, 200)) for y, x in zip(*np.nonzero(ok_before & ~ok & ~mask))]
                 sheet([("czysty", panel(clean, s)), (f"błąd ({n} px)", panel(bad, s, dpts, (255, 0, 200))),
-                       ("linter: czerwony=warning, pomarańcz=info", panel(bad, s, lint_boxes)),
-                       ("clean-up: ziel.=naprawione, czerw.=nie, róż=szkoda", panel(fixed, s, res_boxes))],
+                       ("linter: czerw.=warning, pomar.=info", panel(bad, s, lint_boxes)),
+                       ("clean-up domyślny", panel(fixed, s, boxes(fixed))),
+                       ("clean-up dokładny", panel(aggr, s, boxes(aggr)))],
                       f"{out_dir}/{bname}_{dname}.png")
     json.dump(rows, open(f"{out_dir}/results.json", "w"), indent=1)
     return rows
