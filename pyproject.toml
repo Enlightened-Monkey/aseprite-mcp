@@ -11,6 +11,14 @@ dependencies = [
     "pillow>=10.0.0",
 ]
 
+[project.optional-dependencies]
+ai = [
+    "accelerate>=1.15.0",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
+    "transformers>=5.19.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",

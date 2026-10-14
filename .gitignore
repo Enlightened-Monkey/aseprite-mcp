@@ -47,3 +47,6 @@ ENV/
 
 # Private training materials (copyrighted, never commit)
 train_materials/
+
+# Experiment outputs
+out/
