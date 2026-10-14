@@ -117,28 +117,34 @@ def estimate_grid(img: np.ndarray) -> dict:
     prof_x, prof_y = _profile(hard, 1), _profile(hard, 0)
     px, strength_x = _spectral_period(prof_x, max_p)
     py, strength_y = _spectral_period(prof_y, max_p)
-    # Pixels are square: when the axes disagree, trust the stronger one.
-    if abs(px - py) > 0.08 * max(px, py):
+    # Pixels are square: when the axes disagree (a regular staircase along
+    # one axis can out-shout the grid there), trust the stronger axis and
+    # judge confidence on it; the round trip below still guards the result.
+    agree = abs(px - py) <= 0.08 * max(px, py)
+    if not agree:
         px = py = px if strength_x >= strength_y else py
     p = (px + py) / 2
     px, ox, sx = _refine(prof_x, p)
     py, oy, sy = _refine(prof_y, p)
-    strength = min(strength_x, strength_y)
+    strength = min(strength_x, strength_y) if agree else max(strength_x, strength_y)
+    confidence = min(sx, sy) if agree else max(sx, sy)
     # Native art scores ~1-7 on strength; even blurred upscales score 10+.
-    if strength < 10 or min(sx, sy) < 1.3:
-        return {**native, "confidence": round(min(sx, sy), 2), "spectral_strength": round(float(strength), 1)}
+    if strength < 10 or confidence < 1.3:
+        return {**native, "confidence": round(confidence, 2), "spectral_strength": round(float(strength), 1)}
     s = (px + py) / 2
     grid = {"scale_x": round(s, 3), "scale_y": round(s, 3), "offset_x": round(ox, 2),
-            "offset_y": round(oy, 2), "confidence": round(min(sx, sy), 2),
+            "offset_y": round(oy, 2), "confidence": round(confidence, 2),
             "spectral_strength": round(float(strength), 1)}
     # A regular pattern in native art (stripes, a long 45-degree edge,
     # tiles) also has a strong period. A real upscale survives a round trip:
-    # sampled down to the grid and back up, it still matches itself.
-    match = _round_trip_match(hard, grid)
+    # sampled down to the grid and back up, it still matches itself. Measured
+    # on the defect benchmark: real upscales 0.88-1.00, native art <= 0.83.
+    match, edge_match = _round_trip_match(hard, grid)
     grid["round_trip_match"] = round(match, 2)
-    if match < 0.7:
+    grid["round_trip_edges"] = round(edge_match, 2)
+    if match < 0.85:
         return {**native, "confidence": grid["confidence"], "spectral_strength": grid["spectral_strength"],
-                "round_trip_match": grid["round_trip_match"],
+                "round_trip_match": grid["round_trip_match"], "round_trip_edges": grid["round_trip_edges"],
                 "message": "periodic pattern, but not an upscale (round trip does not match)"}
     return grid
 
@@ -161,20 +167,36 @@ def _cell_index(n: int, period: float, offset: float) -> np.ndarray:
     return idx
 
 
-def _round_trip_match(img: np.ndarray, grid: dict, tolerance: float = 10.0) -> float:
-    """Share of opaque pixels whose colour survives grid down/up-sampling."""
+def _round_trip_match(img: np.ndarray, grid: dict, tolerance: float = 10.0) -> tuple[float, float]:
+    """(all pixels, edge pixels): shares whose colour survives grid
+    down/up-sampling. The edge share (pixels at real colour changes) is
+    reported for diagnosis; blur makes it unreliable as a gate."""
     small = resample_grid(img, grid)
     h, w = img.shape[:2]
     iy = _cell_index(h, grid["scale_y"], grid["offset_y"])
     ix = _cell_index(w, grid["scale_x"], grid["offset_x"])
     ok = (iy[:, None] >= 0) & (ix[None, :] >= 0) & (img[..., 3] > 0)
     if not ok.any():
-        return 0.0
-    yy, xx = np.nonzero(ok)
-    recon = small[iy[yy], ix[xx]]
-    orig = img[yy, xx]
-    d = np.linalg.norm(oklab(orig[:, :3]) - oklab(recon[:, :3]), axis=-1) * 100
-    return float(((d < tolerance) & (recon[:, 3] > 0)).mean())
+        return 0.0, 0.0
+    # Edges = real colour changes (not noise): a perceptual jump above 10.
+    lab = oklab(img[..., :3]) * 100
+    edge = np.zeros((h, w), dtype=bool)
+    jump_x = np.linalg.norm(lab[:, 1:] - lab[:, :-1], axis=-1) > 10
+    jump_y = np.linalg.norm(lab[1:] - lab[:-1], axis=-1) > 10
+    edge[:, 1:] |= jump_x
+    edge[:, :-1] |= jump_x
+    edge[1:, :] |= jump_y
+    edge[:-1, :] |= jump_y
+
+    def share(mask):
+        yy, xx = np.nonzero(mask)
+        if not len(yy):
+            return 0.0
+        recon = small[iy[yy], ix[xx]]
+        d = np.linalg.norm(oklab(img[yy, xx, :3]) - oklab(recon[:, :3]), axis=-1) * 100
+        return float(((d < tolerance) & (recon[:, 3] > 0)).mean())
+
+    return share(ok), share(ok & edge)
 
 
 def _prequantize(img: np.ndarray, colors: int = 64) -> np.ndarray:
@@ -399,34 +421,55 @@ def remove_outer_aa(img: np.ndarray) -> tuple[np.ndarray, list]:
 
 
 def close_outline(img: np.ndarray) -> tuple[np.ndarray, list]:
-    """Fill gaps in a single-colour outline along the silhouette edge.
+    """Fill gaps in a single-colour outline along the silhouette edge
+    (see lint.find_outline_gaps for what counts as a gap)."""
+    gaps, outline = L.find_outline_gaps(img)
+    out = img.copy()
+    for x, y in gaps:
+        out[y, x] = (*L._rgb(outline), outline & 255)
+    return out, gaps
 
-    Applies only when one dark colour covers >= 60% of the edge pixels.
-    An edge pixel of another colour becomes the outline colour when at
-    least two of its 8 neighbours are outline-coloured edge pixels.
-    """
-    keys = L._keys(img)
-    h, w = keys.shape
-    pad = np.pad(keys, 1, constant_values=-1)
-    edge = np.zeros((h, w), dtype=bool)
-    for dx, dy in _N4:
-        edge |= pad[1 + dy:1 + dy + h, 1 + dx:1 + dx + w] == -1
-    edge &= keys != -1
-    counts = Counter(int(k) for k in keys[edge])
-    if not counts:
-        return img, []
-    outline, n = counts.most_common(1)[0]
-    if n < 0.6 * edge.sum() or float(L.lightness(L._rgb(outline))) >= 0.35:
+
+def thin_lines(img: np.ndarray) -> tuple[np.ndarray, list]:
+    """Give the inner layer of 2-px thickenings back to the fill."""
+    from .structure import analyze as _structure
+    px = L.find_thick_lines(img)
+    if not px:
         return img, []
     out = img.copy()
-    epad = np.pad(edge, 1)
+    keys = L._keys(img)
+    line = _structure(img)["lines"].copy()
+    for x, y in px:
+        line[y, x] = False
+    for x, y in px:
+        _set(out, keys, x, y, _fill_colour(keys, line, x, y))
+    return out, px
+
+
+def trim_aa_bands(img: np.ndarray) -> tuple[np.ndarray, list]:
+    """Shorten AA bands that double a line: keep the pixels in the corners
+    of the line's steps, give the rest the colour on the band's far side."""
+    from .structure import analyze as _structure
+    bands = L.find_aa_bands(img)
+    if not bands:
+        return img, []
+    out = img.copy()
+    keys = L._keys(img)
+    h, w = keys.shape
+    lines = _structure(img)["lines"]
     changed = []
-    for y, x in zip(*np.nonzero(edge & (keys != outline))):
-        near = sum(1 for dx, dy in _N8 if pad[1 + y + dy, 1 + x + dx] == outline and epad[1 + y + dy, 1 + x + dx])
-        if near >= 2:
-            changed.append((int(x), int(y)))
-    for x, y in changed:
-        out[y, x] = (*L._rgb(outline), outline & 255)
+    for band in bands:
+        keep = set(band["keep"])
+        for x, y in band["pixels"]:
+            if (x, y) in keep:
+                continue
+            for dx, dy in _N4:
+                lx, ly, fx, fy = x - dx, y - dy, x + dx, y + dy
+                if 0 <= lx < w and 0 <= ly < h and 0 <= fx < w and 0 <= fy < h and lines[ly, lx] \
+                        and not lines[fy, fx] and keys[fy, fx] != -1:
+                    out[y, x] = img[fy, fx]
+                    changed.append((x, y))
+                    break
     return out, changed
 
 
@@ -604,8 +647,8 @@ def dither_mask(img: np.ndarray) -> np.ndarray:
 
 # ------------------------------------------------------------ runner
 
-STEPS = ("alpha", "grid", "palette", "orphans", "speckles", "outline", "corners", "jaggies", "banding",
-         "outer_aa")
+STEPS = ("alpha", "grid", "palette", "orphans", "speckles", "outer_aa", "outline", "thickness", "corners",
+         "jaggies", "banding", "aa_band")
 
 
 def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: bool = True,
@@ -680,9 +723,24 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
         cur, px, kept = despeckle(cur, 15.0 if keep_details else 100.0)
         cur, px = protect(prev, cur, px)
         note("speckles", recoloured=len(px), pixels=px[:40], kept_for_review=kept[:40])
+    # Outer AA goes before closing the outline, or a light pixel touching two
+    # outline pixels would be turned into outline and thicken the line.
+    if "outer_aa" in steps:
+        if style and style.get("outline", {}).get("style") == "selective":
+            note("outer_aa", skipped="selective outline lightens edges on purpose")
+        else:
+            cur, px = remove_outer_aa(cur)
+            note("outer_aa", removed=len(px), pixels=px[:40])
     if "outline" in steps:
         cur, px = close_outline(cur)
         note("outline", closed=len(px), pixels=px[:40])
+    # Line weight and AA bands are often a deliberate style in good art; they
+    # are reported always, but only fixed in the thorough mode.
+    if "thickness" in steps and not keep_details:
+        prev = cur
+        cur, px = thin_lines(cur)
+        cur, px = protect(prev, cur, px)
+        note("thickness", thinned=len(px), pixels=px[:40])
     if "corners" in steps:
         lines = [(k, m) for k, m, sure in L.line_masks(cur, line_colors) if sure or not keep_details]
         prev = cur
@@ -700,12 +758,11 @@ def cleanup(img: np.ndarray, steps=STEPS, max_colors: int = 0, keep_details: boo
         cur, px = break_banding(cur)
         cur, px = protect(prev, cur, px)
         note("banding", changed=len(px), pixels=px[:40])
-    if "outer_aa" in steps:
-        if style and style.get("outline", {}).get("style") == "selective":
-            note("outer_aa", skipped="selective outline lightens edges on purpose")
-        else:
-            cur, px = remove_outer_aa(cur)
-            note("outer_aa", removed=len(px), pixels=px[:40])
+    if "aa_band" in steps and not keep_details:
+        prev = cur
+        cur, px = trim_aa_bands(cur)
+        cur, px = protect(prev, cur, px)
+        note("aa_band", trimmed=len(px), pixels=px[:40])
     return cur, log
 
 

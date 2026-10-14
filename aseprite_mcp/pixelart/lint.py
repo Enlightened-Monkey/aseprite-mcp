@@ -546,7 +546,7 @@ def check_pillow_shading(img: np.ndarray) -> list[dict]:
     depth = np.zeros(opaque.shape, dtype=np.int32)
     cur = opaque.copy()
     d = 0
-    while cur.any() and d < 8:
+    while cur.any() and d < 10:
         d += 1
         depth[cur] = d
         pad = np.pad(cur, 1)
@@ -555,11 +555,14 @@ def check_pillow_shading(img: np.ndarray) -> list[dict]:
     ring1 = Counter(int(k) for k in keys[depth == 1])
     if ring1 and ring1.most_common(1)[0][1] >= 0.7 * sum(ring1.values()):
         first = 2  # skip a solid outline
-    rings = [k for k in range(first, first + 3) if (depth == k).sum() >= 8]
+    # Bands may be wider than one ring: lightness must never fall, and rise
+    # in at least two clear steps.
+    rings = [k for k in range(first, first + 6) if (depth == k).sum() >= 8]
     if len(rings) < 3:
         return []
     means = [light[depth == k].mean() for k in rings]
-    if not (means[0] + 0.02 < means[1] and means[1] + 0.02 < means[2]):
+    steps = np.diff(means)
+    if steps.min() < -0.02 or (steps > 0.02).sum() < 2:
         return []
     ring = depth == rings[0]
     ys, xs = np.nonzero(ring)
@@ -671,6 +674,152 @@ def check_outer_aa(img: np.ndarray) -> list[dict]:
         "belongs inside the shape; outside it looks spotty on unknown backgrounds.", pixels)]
 
 
+# --------------------------------------------------- line consistency
+
+def _silhouette_edge(keys: np.ndarray) -> np.ndarray:
+    h, w = keys.shape
+    pad = np.pad(keys, 1, constant_values=-1)
+    edge = np.zeros((h, w), dtype=bool)
+    for dx, dy in _N4:
+        edge |= pad[1 + dy:1 + dy + h, 1 + dx:1 + dx + w] == -1
+    return edge & (keys != -1)
+
+
+def find_outline_gaps(img: np.ndarray) -> tuple[list, int | None]:
+    """Silhouette-edge pixels where a single-colour outline is interrupted.
+
+    Applies when one dark colour covers >= 60% of the silhouette edge; a gap
+    is an edge pixel of another colour with at least two outline-coloured
+    edge pixels among its 8 neighbours. Returns (pixels, outline key)."""
+    keys = _keys(img)
+    edge = _silhouette_edge(keys)
+    counts = Counter(int(k) for k in keys[edge])
+    if not counts:
+        return [], None
+    outline, n = counts.most_common(1)[0]
+    if n < 0.6 * edge.sum() or float(lightness(_rgb(outline))) >= 0.35:
+        return [], None
+    pad = np.pad(keys, 1, constant_values=-1)
+    epad = np.pad(edge, 1)
+    gaps = []
+    for y, x in zip(*np.nonzero(edge & (keys != outline))):
+        near = sum(1 for dx, dy in _N8 if pad[1 + y + dy, 1 + x + dx] == outline and epad[1 + y + dy, 1 + x + dx])
+        if near >= 2:
+            gaps.append((int(x), int(y)))
+    return gaps, outline
+
+
+def check_outline_gaps(img: np.ndarray) -> list[dict]:
+    gaps, _ = find_outline_gaps(img)
+    if not gaps:
+        return []
+    return [_issue("outline_gaps", "warning",
+        f"{len(gaps)} pixel(s) interrupt the outline on the silhouette. Close the gaps with the outline colour.",
+        gaps)]
+
+
+def find_thick_lines(img: np.ndarray) -> list[tuple[int, int]]:
+    """Inner pixels of spots where 1-px line art thickens to 2 px.
+
+    Only for line colours drawn mostly 1 px wide (>= 80% of their detected
+    line pixels outside 2x2 blocks). In each 2x2 block of line pixels, the
+    pixels not touching transparency are the thickening (the outline itself
+    stays on the silhouette)."""
+    from .structure import analyze as _structure
+    keys = _keys(img)
+    lines = _structure(img)["lines"]
+    edge = _silhouette_edge(keys)
+    out = set()
+    for k in np.unique(keys[lines]):
+        m = lines & (keys == k)
+        if m.sum() < 8 or _thin_ratio(m) < 0.8:
+            continue
+        block = m[:-1, :-1] & m[1:, :-1] & m[:-1, 1:] & m[1:, 1:]
+        for y, x in zip(*np.nonzero(block)):
+            for dy in (0, 1):
+                for dx in (0, 1):
+                    if not edge[y + dy, x + dx]:
+                        out.add((int(x + dx), int(y + dy)))
+    return sorted(out)
+
+
+def check_line_width(img: np.ndarray) -> list[dict]:
+    px = find_thick_lines(img)
+    if not px:
+        return []
+    return [_issue("line_width", "warning",
+        f"{len(px)} pixel(s) thicken 1-px line art to 2 px. Keep one line width: remove the inner layer "
+        "(ignore where a heavier line is a deliberate weight).", px)]
+
+
+def find_aa_bands(img: np.ndarray, min_len: int = 6) -> list[dict]:
+    """1-px strips of an in-between tone glued to line art along a stretch.
+
+    Anti-aliasing belongs in the corners of a line's steps, about half a
+    step long; a strip that follows the line pixel by pixel (along a flat run
+    or every step of a diagonal) just doubles the line in a lighter tone.
+    A band: >= min_len pixels of one colour, 8-connected, 1 px wide, each
+    touching the line, each lighter than the line and darker than what lies
+    just beyond it. Returns [{"pixels", "keep"}] - keep = band pixels in the
+    concave corners of steps, where AA is right."""
+    from .structure import analyze as _structure
+    keys = _keys(img)
+    h, w = keys.shape
+    lines = _structure(img)["lines"]
+    lum = lightness(img[..., :3])
+    cand = np.zeros((h, w), dtype=bool)
+    for y, x in zip(*np.nonzero((keys != -1) & ~lines)):
+        for dx, dy in _N4:
+            lx, ly, fx, fy = x - dx, y - dy, x + dx, y + dy
+            if 0 <= lx < w and 0 <= ly < h and 0 <= fx < w and 0 <= fy < h and lines[ly, lx] \
+                    and keys[fy, fx] not in (-1, keys[y, x]) and not lines[fy, fx] \
+                    and lum[ly, lx] + 0.03 < lum[y, x] < lum[fy, fx] - 0.03:
+                cand[y, x] = True
+                break
+    bands = []
+    seen = np.zeros_like(cand)
+    for y, x in zip(*np.nonzero(cand)):
+        if seen[y, x]:
+            continue
+        k = keys[y, x]
+        stack, comp = [(y, x)], []
+        seen[y, x] = True
+        while stack:
+            cy, cx = stack.pop()
+            comp.append((cx, cy))
+            for dx, dy in _N8:
+                ny, nx = cy + dy, cx + dx
+                if 0 <= ny < h and 0 <= nx < w and cand[ny, nx] and not seen[ny, nx] and keys[ny, nx] == k:
+                    seen[ny, nx] = True
+                    stack.append((ny, nx))
+        if len(comp) < min_len:
+            continue
+        m = np.zeros((h, w), dtype=bool)
+        for cx, cy in comp:
+            m[cy, cx] = True
+        if _thin_ratio(m) < 0.9:
+            continue
+        def at(x, y):
+            return 0 <= x < w and 0 <= y < h and lines[y, x]
+
+        # A concave corner: line on one horizontal and one vertical side.
+        keep = [(cx, cy) for cx, cy in comp
+                if any(at(cx + hx, cy) and at(cx, cy + vy) for hx in (-1, 1) for vy in (-1, 1))]
+        bands.append({"pixels": comp, "keep": keep})
+    return bands
+
+
+def check_aa_bands(img: np.ndarray) -> list[dict]:
+    bands = find_aa_bands(img)
+    if not bands:
+        return []
+    px = [p for b in bands for p in b["pixels"]]
+    return [_issue("aa_band", "warning",
+        f"{len(px)} pixel(s) of in-between tone follow line art pixel by pixel in {len(bands)} band(s), "
+        "doubling the line. Keep AA only in the corners of steps, about half a step long (ignore if soft, "
+        "doubled lines are the intended style).", px)]
+
+
 # -------------------------------------------------------------- runner
 
 CHECKS = {
@@ -682,6 +831,9 @@ CHECKS = {
     "colors": check_colors,
     "dither": check_dither,
     "outer_aa": check_outer_aa,
+    "outline_gaps": check_outline_gaps,
+    "line_width": check_line_width,
+    "aa_band": check_aa_bands,
 }
 
 
