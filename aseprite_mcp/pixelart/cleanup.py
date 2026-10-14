@@ -128,9 +128,53 @@ def estimate_grid(img: np.ndarray) -> dict:
     if strength < 10 or min(sx, sy) < 1.3:
         return {**native, "confidence": round(min(sx, sy), 2), "spectral_strength": round(float(strength), 1)}
     s = (px + py) / 2
-    return {"scale_x": round(s, 3), "scale_y": round(s, 3), "offset_x": round(ox, 2),
+    grid = {"scale_x": round(s, 3), "scale_y": round(s, 3), "offset_x": round(ox, 2),
             "offset_y": round(oy, 2), "confidence": round(min(sx, sy), 2),
             "spectral_strength": round(float(strength), 1)}
+    # A regular pattern in native art (stripes, a long 45-degree edge,
+    # tiles) also has a strong period. A real upscale survives a round trip:
+    # sampled down to the grid and back up, it still matches itself.
+    match = _round_trip_match(hard, grid)
+    grid["round_trip_match"] = round(match, 2)
+    if match < 0.7:
+        return {**native, "confidence": grid["confidence"], "spectral_strength": grid["spectral_strength"],
+                "round_trip_match": grid["round_trip_match"],
+                "message": "periodic pattern, but not an upscale (round trip does not match)"}
+    return grid
+
+
+def _cell_index(n: int, period: float, offset: float) -> np.ndarray:
+    """For each of n pixels, the index of the grid cell holding its centre,
+    matching resample_grid's cells (partial edge cells under half dropped)."""
+    start = offset - period * np.ceil(offset / period)
+    bounds = []
+    b = start
+    while b < n:
+        lo, hi = b, b + period
+        if min(hi, n) - max(lo, 0) >= period / 2:
+            bounds.append((lo, hi))
+        b += period
+    idx = np.full(n, -1)
+    for i, (lo, hi) in enumerate(bounds):
+        sel = (np.arange(n) + 0.5 >= lo) & (np.arange(n) + 0.5 < hi)
+        idx[sel] = i
+    return idx
+
+
+def _round_trip_match(img: np.ndarray, grid: dict, tolerance: float = 10.0) -> float:
+    """Share of opaque pixels whose colour survives grid down/up-sampling."""
+    small = resample_grid(img, grid)
+    h, w = img.shape[:2]
+    iy = _cell_index(h, grid["scale_y"], grid["offset_y"])
+    ix = _cell_index(w, grid["scale_x"], grid["offset_x"])
+    ok = (iy[:, None] >= 0) & (ix[None, :] >= 0) & (img[..., 3] > 0)
+    if not ok.any():
+        return 0.0
+    yy, xx = np.nonzero(ok)
+    recon = small[iy[yy], ix[xx]]
+    orig = img[yy, xx]
+    d = np.linalg.norm(oklab(orig[:, :3]) - oklab(recon[:, :3]), axis=-1) * 100
+    return float(((d < tolerance) & (recon[:, 3] > 0)).mean())
 
 
 def _prequantize(img: np.ndarray, colors: int = 64) -> np.ndarray:

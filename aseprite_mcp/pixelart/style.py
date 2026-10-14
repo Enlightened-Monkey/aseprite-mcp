@@ -216,6 +216,21 @@ def analyze_style(img: np.ndarray) -> dict:
                      "limited" if n_colors <= 16 else "rich" if n_colors <= 64 else "unrestricted")
 
     outline = _outline(work, keys)
+    # Shape-based line detection is the more robust witness: when it finds
+    # an outline on most of the silhouette, trust it (the edge heuristic
+    # above fails when parts of the edge are cut against other elements or
+    # a lineless effect like smoke owns most of the silhouette).
+    from .structure import analyze as _structure
+    struct = _structure(work)["summary"]
+    if outline["style"] == "none" and struct["has_outline"] and struct["line_colors"]:
+        from .color import hex_to_rgb
+        top = hex_to_rgb(struct["line_colors"][0]["color"])
+        top_l = float(lightness(top))
+        outline = {**outline, "style": "black_contour" if top_l < 0.15 else "dark_contour",
+                   "colors": [c["color"] for c in struct["line_colors"][:4]],
+                   "pure_black": top == (0, 0, 0), "from_structure": True}
+    outline["coverage"] = struct["outline_coverage"]
+    outline["inner_line_share"] = struct["inner_line_share"]
     fams = _hue_families(colors)
     tones = [len(f["members"]) for f in fams if sum(n for _, n in f["members"]) >= 0.03 * opaque.sum()]
     tones_per_ramp = round(float(np.mean(tones)), 1) if tones else 0.0
@@ -361,5 +376,9 @@ def _lint_settings(p: dict, outline: dict) -> dict:
     if outline["style"] == "selective":
         checks.remove("outer_aa")
         skip["outer_aa"] = "selective outline lightens edges on purpose"
+    if outline["style"] == "none" and outline.get("inner_line_share", 0) < 0.03:
+        for c in ("l_corners", "jaggies"):
+            checks.remove(c)
+        skip["l_corners/jaggies"] = "no line art: lineless shapes (smoke, painted backdrop) have no lines to judge"
     return {"checks": checks, "line_colors": outline.get("colors", [])[:2]
             if outline["style"] not in ("none",) else [], "skipped": skip}

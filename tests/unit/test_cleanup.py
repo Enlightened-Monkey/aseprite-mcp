@@ -165,3 +165,14 @@ def test_cleanup_line_fixes_use_detected_lineart():
     out, log = CL.cleanup(a, steps=("corners",))
     changed = CL.changed_pixels(a, out)
     assert (5, 4) not in changed and (6, 5) not in changed
+
+
+def test_regular_pattern_is_not_mistaken_for_upscale():
+    # A long 45-degree strip has a strong period but is native pixel art.
+    a = np.zeros((60, 60, 4), np.uint8)
+    for i in range(60):
+        for t in range(6):
+            x, y = i, 59 - i - t
+            if 0 <= y < 60:
+                a[y, x] = (220, 225, 235, 255) if t in (1, 2, 3, 4) else (10, 5, 15, 255)
+    assert CL.estimate_grid(a)["scale_x"] == 1.0
